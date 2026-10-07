@@ -1,0 +1,73 @@
+{
+  "name": "local-ai-proxy",
+  "version": "0.2.2",
+  "private": true,
+  "description": "OpenAI-compatible local AI forwarding proxy with a desktop GUI and a live request/response inspector.",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "author": "LocalAIProxy",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "build:backend": "node scripts/build-backend.mjs",
+    "dev:desktop": "npm run build:backend && electron .",
+    "dist": "npm run build:backend && electron-builder",
+    "dist:win": "npm run build:backend && electron-builder --win --x64",
+    "dist:mac": "npm run build:backend && electron-builder --mac",
+    "dist:linux": "npm run build:backend && electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.localaiproxy.app",
+    "productName": "LocalAIProxy",
+    "asar": true,
+    "directories": {
+      "output": "releases",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "dist/backend.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "public",
+        "to": "public"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "LocalAIProxy-${version}-win-portable.exe"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.developer-tools",
+      "artifactName": "LocalAIProxy-${version}-mac.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "maintainer": "LocalAIProxy <dev@localaiproxy.local>",
+      "artifactName": "LocalAIProxy-${version}-linux.${ext}"
+    }
+  },
+  "devDependencies": {
+    "electron": "^44.6.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2"
+  }
+}

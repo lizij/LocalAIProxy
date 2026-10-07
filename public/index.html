@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LocalAIProxy 控制台</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>LocalAIProxy</h1>
+      <div class="status" id="status">连接中…</div>
+    </header>
+
+    <main>
+      <section class="card" id="loginCard" hidden>
+        <h2>管理口令</h2>
+        <div class="row">
+          <input id="password" type="password" placeholder="请输入管理口令" />
+          <button id="loginBtn" class="primary">登录</button>
+          <span id="loginHint" class="hint"></span>
+        </div>
+      </section>
+
+      <section class="card" id="setupCard">
+        <h2>① 本地接入信息（给 agent 工具用）</h2>
+        <div class="row">
+          <label>Base URL</label>
+          <input id="baseUrlOut" readonly />
+          <button data-copy="baseUrlOut">复制</button>
+        </div>
+        <div class="row">
+          <label>API Key</label>
+          <input id="apiKeyOut" readonly />
+          <button data-copy="apiKeyOut">复制</button>
+          <button id="rotateKey">重置</button>
+        </div>
+        <div class="row">
+          <label>校验客户端 Key</label>
+          <input type="checkbox" id="requireClientKey" />
+          <span class="hint">关闭后局域网内任意客户端可直连（不推荐）</span>
+        </div>
+      </section>
+
+      <section class="card" id="providerCard">
+        <h2>② 上游 Provider</h2>
+        <div class="row">
+          <label>Base URL</label>
+          <input id="upBaseUrl" placeholder="https://api.deepseek.com" />
+        </div>
+        <div class="row">
+          <label>API Key</label>
+          <input id="upApiKey" placeholder="sk-..." />
+        </div>
+        <div class="row">
+          <label>Model（兜底）</label>
+          <input id="upModel" placeholder="deepseek-chat" />
+        </div>
+        <div class="row">
+          <label>跳过证书校验</label>
+          <input type="checkbox" id="upInsecure" />
+          <span class="hint">仅用于自签证书的上游</span>
+        </div>
+        <div class="row">
+          <button id="saveConfig" class="primary">保存配置</button>
+          <span id="saveHint" class="hint"></span>
+        </div>
+        <div class="row">
+          <label>测试提示词</label>
+          <input id="testPrompt" placeholder="你好，请用一句话介绍你自己。" />
+        </div>
+        <div class="row">
+          <label>流式返回</label>
+          <input type="checkbox" id="testStream" checked />
+          <button id="testBtn" class="primary">保存并测试</button>
+          <span id="testHint" class="hint"></span>
+        </div>
+        <div class="test-box" id="testBox" hidden>
+          <div class="sec-title" id="testMeta"></div>
+          <pre id="testOutput"></pre>
+        </div>
+        <p class="hint">修改 host / port 需重启进程后生效；上游 baseUrl / apiKey / model 保存后即时生效。测试会用当前保存的配置向上游发一次真实请求，并出现在下方「请求日志」中。</p>
+      </section>
+
+      <section class="card" id="logsCard">
+        <h2>③ 请求日志 <span class="hint" id="logMeta"></span></h2>
+        <div class="toolbar">
+          <input id="search" placeholder="搜索 url / body / model" />
+          <select id="statusFilter">
+            <option value="">全部状态</option>
+            <option value="pending">进行中</option>
+            <option value="done">成功</option>
+            <option value="error">失败</option>
+          </select>
+          <button id="pauseBtn">暂停</button>
+          <button id="clearBtn">清空视图</button>
+          <button id="historyBtn">历史文件</button>
+        </div>
+        <div id="logList" class="log-list"></div>
+      </section>
+
+      <section class="card" id="historyCard" hidden>
+        <h2>历史日志文件</h2>
+        <div id="fileList" class="file-list"></div>
+        <div id="historyView" class="log-list"></div>
+      </section>
+    </main>
+
+    <div class="version" id="version"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

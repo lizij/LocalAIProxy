@@ -1,0 +1,15 @@
+# 依赖与构建产物
+node_modules/
+dist/
+releases/
+
+# 运行时数据：含 config.json（里面有上游 API Key）与日志，禁止提交
+data/
+.tmp/
+
+# 日志
+*.log
+
+# 操作系统垃圾文件
+.DS_Store
+Thumbs.db
