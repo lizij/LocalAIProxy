@@ -214,3 +214,10 @@ git push origin main               # 7. 推送（首次可加 -u）
 ```
 
 **禁止**：向 `main` 强制推送（`--force` / `-f`）；用 `--no-verify` 跳过钩子；提交上述任何红线内容。
+
+### 9.6 由谁执行推送
+
+- 用户已授权：**提交完成后由代理直接执行 `git push`**（本机凭据由 Git Credential Manager 保管，可非交互完成）。
+- 标准动作：`git fetch origin` → `git rebase origin/main` → `git push origin main` → `git ls-remote origin main` 核对远端 SHA 与本地 `git rev-parse HEAD` 一致。
+- 若推送被拒（如远端有新提交）：先 `git fetch` 再 `git rebase origin/main`，**不要**用 `--force` 掩盖冲突。
+- 若认证失败：不要尝试任何绕过手段，直接把 `git push origin main` 交给用户在自己终端执行（那里能安全弹出登录）。
