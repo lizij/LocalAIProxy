@@ -18,7 +18,8 @@ export const HOME = process.env.LOCAL_AI_PROXY_HOME
  * 由环境变量 LOCAL_AI_PROXY_PROFILE=test 切换。不设即 user 档，避免被误触。
  * 设计要点：**test 档永远不会写 user 档的 config.json**，用户真实数据只读不写。
  */
-export const PROFILE = process.env.LOCAL_AI_PROXY_PROFILE === 'test' ? 'test' : 'user';
+export const PROFILE =
+  String(process.env.LOCAL_AI_PROXY_PROFILE || '').trim().toLowerCase() === 'test' ? 'test' : 'user';
 export const IS_TEST = PROFILE === 'test';
 
 /** 用户档配置文件：test 档只读它做种子化，绝不写入。 */
@@ -73,10 +74,22 @@ function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
+/**
+ * 读取并解析 JSON 配置文件。
+ * 必须剥掉 UTF-8 BOM：Windows 记事本与 PowerShell 5.1 的 `Set-Content -Encoding utf8`
+ * 都会写入 BOM（EF BB BF），而 JSON.parse 遇到 BOM 会直接抛错——
+ * 曾导致「用户手改过配置文件后，程序静默回退到默认配置、像丢配置一样」。
+ */
+function readJsonFile(file) {
+  const raw = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
+  return JSON.parse(raw);
+}
+
 function deepMerge(base, over) {
   const out = isPlainObject(base) ? { ...base } : {};
   for (const [k, v] of Object.entries(over || {})) {
-    if (v === undefined) continue;
+    // undefined / null 一律跳过：避免用户配置里写了个 null 就把整段结构覆盖掉并引发崩溃
+    if (v === undefined || v === null) continue;
     if (isPlainObject(v) && isPlainObject(out[k])) out[k] = deepMerge(out[k], v);
     else out[k] = v;
   }
@@ -103,9 +116,9 @@ function seedTestConfig() {
   const out = defaults();
   let user = null;
   try {
-    user = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, 'utf8'));
+    user = readJsonFile(USER_CONFIG_PATH);
   } catch {
-    return out; // 用户档不存在或损坏：直接用默认值
+    return { config: out, seeded: false }; // 用户档不存在或不可解析：直接用默认值
   }
 
   out.proxy = {
@@ -127,7 +140,7 @@ function seedTestConfig() {
     ...pickDefined(user.log, ['memorySize', 'maxFileSizeMB', 'maxDays']),
     dir: TEST_LOG_DIR,
   };
-  return out;
+  return { config: out, seeded: true };
 }
 
 export function maskSecret(value) {
@@ -150,24 +163,27 @@ export class ConfigStore {
   }
 
   #load() {
-    let raw = null;
-    try {
-      raw = fs.readFileSync(this.file, 'utf8');
-    } catch (err) {
-      if (err.code !== 'ENOENT') console.error(`[config] 读取 ${path.basename(this.file)} 失败:`, err.message);
-    }
-
-    if (raw == null) {
-      const base = IS_TEST ? seedTestConfig() : defaults();
+    if (!fs.existsSync(this.file)) {
+      let base = defaults();
+      let seeded = false;
+      if (IS_TEST) {
+        const r = seedTestConfig();
+        base = r.config;
+        seeded = r.seeded;
+      }
       this.#persist(base);
       if (IS_TEST) {
-        console.log(`[config] 已生成测试档 ${path.basename(this.file)}（从 ${path.basename(USER_CONFIG_PATH)} 只读复制结构项，未改动后者）`);
+        console.log(
+          seeded
+            ? `[config] 已生成测试档 ${path.basename(this.file)}（从 ${path.basename(USER_CONFIG_PATH)} 只读复制结构项，未改动后者）`
+            : `[config] 已生成测试档 ${path.basename(this.file)}（未找到可用的 ${path.basename(USER_CONFIG_PATH)}，改用默认值）`,
+        );
       }
       return base;
     }
 
     try {
-      const parsed = deepMerge(defaults(), JSON.parse(raw));
+      const parsed = deepMerge(defaults(), readJsonFile(this.file));
       if (IS_TEST) parsed.log.dir = TEST_LOG_DIR; // 双保险：测试档日志永远独立
       return parsed;
     } catch (err) {
@@ -176,7 +192,7 @@ export class ConfigStore {
         fs.copyFileSync(this.file, backup);
       } catch {}
       console.error(`[config] ${path.basename(this.file)} 解析失败(${err.message})，已备份到 ${path.basename(backup)}，本次使用默认配置`);
-      return IS_TEST ? seedTestConfig() : defaults();
+      return IS_TEST ? seedTestConfig().config : defaults();
     }
   }
 

@@ -243,6 +243,9 @@ LocalAIProxy/
 - `test` 档首次生成时，从 `config.json` **只读**复制一份可用的结构性配置：`proxy` 端口等结构项、`admin.host/port`、`log` 设置、`upstream` 全部（**含 apiKey**，便于用真实 provider 联调）；**不复制**本地客户端 Key（测试档新生成，便于区分）与管理口令；日志目录强制为 `logs-test`。
 - 启动时会醒目打印当前档位、配置文件与日志目录；状态接口也返回 `profile`，网页右下角角标在测试档会显示「· 测试档」。
 - 网页修改后写回并热更新（转发模块读取最新配置）。
+- 解析配置文件时会**先剥离 UTF-8 BOM**：Windows 记事本与 PowerShell 5.1 的 `Set-Content -Encoding utf8` 都会写入 BOM，而 `JSON.parse` 遇到 BOM 会直接抛错，曾导致「用户手改过配置后程序静默回退到默认配置、看起来像配置丢失」。
+- 解析失败时会先把原文件备份为 `config.json.bak` 再回退默认值，**不会直接覆盖用户文件**。
+- 环境变量 `LOCAL_AI_PROXY_PROFILE` 的取值会 trim + 转小写后再匹配，避免写成 `TEST` 时静默落到用户档。
 
 **配置项草案**
 
