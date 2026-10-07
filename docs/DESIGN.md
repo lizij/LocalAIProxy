@@ -89,7 +89,9 @@
 ```
 LocalAIProxy/
 ├─ package.json               # 版本号单一来源 + electron-builder 配置 + 脚本
-├─ AGENTS.md                  # 代理协作指南（命令、版本规约、约束）
+├─ AGENTS.md                  # 代理协作指南（命令、版本规约、约束、Git 规范）
+├─ README.md                  # 项目说明（面向使用者：快速开始、配置、构建）
+├─ LICENSE                    # Apache-2.0
 ├─ .gitignore
 ├─ docs/
 │  └─ DESIGN.md               # 本文件
