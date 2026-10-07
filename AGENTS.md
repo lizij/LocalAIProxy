@@ -22,6 +22,7 @@ LocalAIProxy：一个 **OpenAI 协议兼容的本地 AI 转发代理**。
 | 目的 | 命令 |
 | --- | --- |
 | 命令行模式启动（无 GUI，纯 Node） | `npm start` |
+| **测试档**命令行启动（不碰用户 config.json） | `npm run start:test` |
 | 本地开发桌面应用 | `npm run dev:desktop` |
 | 只打包后端为 `dist/backend.cjs` | `npm run build:backend` |
 | 打包当前系统的安装产物 | `npm run dist` |
@@ -40,6 +41,13 @@ npm run dist:win
 ```
 
 首次 `npm install` 若中断，`node_modules/electron/dist` 可能缺失（postinstall 被跳过）；此时单独补跑：`node node_modules/electron/install.js`。
+
+**开发/测试必须用测试档**：`npm run start:test`（或设 `LOCAL_AI_PROXY_PROFILE=test`）会读写 `data/config-test.json` 与 `data/logs-test/`，**绝不读取或改动用户的 `data/config.json`**。任何验证、联调、截图、接口调用，都必须走测试档。
+
+**动配置前必须先确认 8787/8788 上是谁在跑**：若已有实例占用端口，你发往 `/api/admin/*` 的请求会打到**别人的实例**（曾因此把用户的真实上游配置覆盖成了测试值）。先确认端口空闲，或只用测试档自己启动的实例。
+
+**构建已自动保护用户数据**：`npm run dist:*` 实际执行 `scripts/dist.mjs`，会在 electron-builder 清理 `releases/` **之前**把 `releases/data` 备份到仓库之外的临时目录，构建完成后自动恢复并逐文件校验，校验通过才删除备份。因此**不要手工删除 `releases/data`**，也不要绕过 `scripts/dist.mjs` 直接调用 `electron-builder`。
+判断构建是否结束，要按**新版本号产物是否存在**来判断，不能用「`releases/` 下存在任意 exe」——旧版本 exe 一直在，会导致误判。
 
 ---
 
@@ -84,6 +92,7 @@ npm run dist:win
 8. **国内构建需设镜像**：Electron 及其打包工具默认走 GitHub，构建前需设置 `ELECTRON_MIRROR` 与 `ELECTRON_BUILDER_BINARIES_MIRROR`（见 `docs/DESIGN.md` 9.4）。
 9. **安全默认值**：日志中的密钥一律打码；管理端口默认只监听 `127.0.0.1`；代理端口对局域网开放时保持 `requireClientKey: true`。
 10. **不要再造路由框架**：`node:http` 手写路由已足够，不要为几个接口引入 Express/Fastify。
+11. **配置档隔离**：开发/测试/验证一律走 `test` 档（`LOCAL_AI_PROXY_PROFILE=test`）。`src/config.js` 里已硬性禁止 test 档写入 `config.json`、并强制 test 档日志目录为 `logs-test`——**不要移除这两处保护**，也不要把测试数据写进用户的 `logs/`。
 
 ---
 
@@ -95,6 +104,8 @@ AGENTS.md               # 本文件
 docs/DESIGN.md          # 方案设计（重要改动必须同步）
 electron/main.cjs       # Electron 主进程：启动服务 + 创建窗口 + 生命周期
 scripts/build-backend.mjs  # esbuild 把 src/app.js 打包为 dist/backend.cjs
+scripts/start-test.mjs     # 以测试档启动命令行模式（config-test.json / logs-test）
+scripts/dist.mjs           # 构建包装：构建前后自动备份/恢复 releases/data
 src/
   index.js              # 命令行入口
   app.js                # 应用装配（命令行与桌面共用）

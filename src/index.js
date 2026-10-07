@@ -26,9 +26,16 @@ try {
   process.exit(1);
 }
 
+const prof = app.config.profileInfo();
+
 console.log('');
+if (prof.profile === 'test') {
+  console.log('*** 测试档（test）：使用 config-test.json 与 logs-test/，不会读取或改动用户的 config.json ***');
+}
 console.log(`LocalAIProxy v${VERSION} 已启动（命令行模式）`);
+console.log(`  配置档        : ${prof.profile}  →  ${prof.configFile}`);
 console.log(`  数据目录      : ${app.home}`);
+console.log(`  日志目录      : ${prof.logDir}`);
 console.log(`  代理(OpenAI)  : http://127.0.0.1:${cfg.proxy.port}/v1   (监听 ${cfg.proxy.host}:${cfg.proxy.port})`);
 for (const ip of lanAddresses()) {
   console.log(`                  http://${ip}:${cfg.proxy.port}/v1   (局域网)`);

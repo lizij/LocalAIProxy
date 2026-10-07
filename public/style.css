@@ -94,6 +94,11 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
   border-radius: 8px;
   background: var(--panel-2);
   overflow: hidden;
+  /* 关键：flex 纵列里必须禁止收缩。
+     该元素 overflow 非 visible，若被允许收缩，自动最小尺寸会变成 0，
+     于是条目被压扁、超出部分被 overflow:hidden 裁掉，且父容器不产生滚动条，
+     表现为“内容被截断且无法滚到”。 */
+  flex: none;
 }
 .log-item[data-status="error"] { border-color: #5a2a2a; }
 .log-item[data-status="pending"] { border-color: #4a3f22; }
@@ -130,28 +135,91 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .log-head .dur { color: var(--muted); flex: none; }
 
 .log-body { padding: 8px 12px 12px; border-top: 1px solid var(--border); }
-.sec { margin-bottom: 10px; }
-.sec-title { color: var(--accent); font-size: 12px; margin-bottom: 4px; }
-.sec-title.small { color: var(--muted); }
+.sec { margin-bottom: 14px; }
+.sec-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.sec-title { color: var(--accent); font-size: 12px; }
+.sec-title.small { color: var(--muted); font-size: 11px; }
+.sec-meta { color: var(--muted); font-size: 11px; font-family: var(--mono); }
+.sec-actions { margin-left: auto; display: flex; gap: 6px; flex: none; }
+.sec-actions button, .block-bar button { padding: 2px 8px; font-size: 11px; }
 pre {
-  margin: 0;
+  margin: 0 0 6px;
   background: #12141a;
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 10px;
-  max-height: 320px;
-  overflow: auto;
+  /* 默认完整撑开显示，不做高度裁剪——任何裁剪都会让内容“看起来被截断” */
   font-family: var(--mono);
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* 超长块默认折叠，并给出明确的「展开全部」入口，杜绝“被截断”的错觉 */
+pre.clamped {
+  position: relative;
+  max-height: 17em;
+  overflow: hidden;
+}
+pre.clamped::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 48px;
+  background: linear-gradient(to bottom, rgba(18, 20, 26, 0), #12141a 85%);
+  pointer-events: none;
+}
+.block { margin-bottom: 2px; }
+.block-bar { display: flex; justify-content: flex-end; margin: 0 0 6px; }
+
+/* ---------- 摘要卡片（面向普通用户，先看懂再往下看原始报文） ---------- */
+.summary {
+  background: #141821;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.sum-title { color: var(--accent); font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+.sum-row { display: flex; gap: 10px; font-size: 12px; margin-bottom: 5px; }
+.sum-k { flex: none; width: 44px; color: var(--muted); }
+.sum-v { flex: 1; min-width: 0; word-break: break-word; }
+.sum-row.bad .sum-v { color: var(--err); }
+.sum-row.dim .sum-v { color: var(--muted); }
+.sum-msg { display: flex; gap: 10px; margin-bottom: 5px; font-size: 12px; }
+.sum-msg .role {
+  flex: none;
+  width: 46px;
+  height: fit-content;
+  text-align: center;
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 11px;
+  background: #2c3240;
+  color: var(--muted);
+}
+.sum-msg .role.user { background: rgba(76, 141, 255, 0.18); color: var(--accent); }
+.sum-msg .role.assistant { background: rgba(47, 191, 107, 0.18); color: var(--ok); }
+.sum-msg .role.reasoning { background: rgba(226, 179, 65, 0.18); color: var(--warn); }
+.sum-msg .txt { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }
+
+.raw-head {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 4px 0 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
 
 .file-list { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .file-list button.active { border-color: var(--accent); color: var(--accent); }
 
+/* 历史查看面板不限制高度，随页面自然增长（实时日志窗仍保留 620px 滚动窗口）。 */
+#historyView.log-list { max-height: none; }
+
 .test-box { margin: 10px 0; }
-.test-box pre { max-height: 260px; }
+.test-box pre { max-height: 260px; overflow: auto; }
 
 .version {
   position: fixed;

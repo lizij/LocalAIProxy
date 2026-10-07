@@ -218,16 +218,30 @@ LocalAIProxy/
 
 单页，无构建。功能：
 
-1. **实时日志流**：滚动列表，点击展开请求/响应原文（JSON 折叠 / SSE 分片展开 / 一键复制 / 下载单条）。
+1. **实时日志流**：滚动列表，点击展开查看。展开后**先给「摘要」卡片**——用普通用户能看懂的方式列出：发送了什么（模型、流式与否、消息条数与每条 role/内容、其它参数）、目标地址、收到了什么（HTTP 状态、耗时、finish_reason、助手回复、思考内容）、以及 token 用量（输入/输出/合计、缓存命中、思考 token）。摘要之后是**原始报文**（元信息 / 正文分块，含复制全文 / 下载）。
+   渲染原则是**绝不裁剪**：短内容完整撑开显示；超长内容默认折叠为 17em 高并加渐隐遮罩，同时给出明确的「**展开全部（N 字符 · M 行）**」按钮，点击后完整撑开、不再有内层滚动。
+   > 布局陷阱（曾导致“内容被截断且滚不到”）：列表 `.log-list` 是 flex 纵列容器，条目 `.log-item` 又设了 `overflow: hidden`。此时条目的自动最小尺寸会变成 0，被 flex 收缩压扁，超出部分被 `overflow: hidden` 悄悄裁掉，且父容器 `scrollHeight` 被算成等于 `clientHeight`，**连滚动条都不出现**。因此 `.log-item` 必须写 `flex: none`；历史查看面板额外放开 `max-height`。
 2. **Provider 配置**：上游 baseurl、apikey、默认 model 的查看与修改，保存即生效。
-3. **网页内测试**：填好上游后点「保存并测试」，直接向上游发一次真实请求并**在页面内流式渲染结果**（含状态码与 token 用量），无需命令行；该次测试同样会记入请求日志。
+3. **网页内测试（两条路径，界面上可选、结果里会标明用了哪条）**：均由「保存并测试」触发，测试结果在页面内流式渲染（含状态码与 token 用量）。
+   - **直连上游**（`via=upstream`，默认）：绕过本地代理直接打上游 `/v1/chat/completions`，只用于验证 Provider 的 baseUrl / apiKey / model 是否正确；该次请求以 `admin:test(直连上游)` 记为一条日志。
+   - **经本地代理**（`via=proxy`）：打本机 `http://127.0.0.1:<proxyPort>/v1/chat/completions` 并携带**本地 Key**，验证端到端链路（本地 Key 鉴权 → 转发 → 日志落库）。此时不在此处重复记日志，由代理自身记录，日志里能看到一条真实的客户端请求。
 4. **本地 Key 管理**：查看/重置客户端访问 Key，一键复制示例 base_url。
 5. **服务状态**：监听地址、请求计数、最近错误、日志文件列表与历史加载。
 
-### 6.6 配置模块
+### 6.6 配置模块（配置档 / profile）
 
-- 配置文件：`data/config.json`（路径可由环境变量 `LOCAL_AI_PROXY_HOME` 覆盖）。
-- 启动时若不存在则用默认值创建。
+数据根目录固定为 `<cwd>/data`（可由 `LOCAL_AI_PROXY_HOME` 覆盖）——**刻意不使用系统用户目录**，以保证三系统行为一致、目录可整体搬移。
+
+在该目录下用「配置档」隔离用户数据与开发测试数据：
+
+| 档位 | 如何启用 | 配置文件 | 日志目录 | 用途 |
+| --- | --- | --- | --- | --- |
+| `user`（默认） | 不设环境变量 | `data/config.json` | `data/logs/` | 用户真实使用 |
+| `test` | `LOCAL_AI_PROXY_PROFILE=test` | `data/config-test.json` | `data/logs-test/` | 开发 / 联调 / agent 验证 |
+
+- **`test` 档永远不会写 `user` 档的 `config.json`**（`ConfigStore.#persist` 里有硬性拒绝写入的兜底）。
+- `test` 档首次生成时，从 `config.json` **只读**复制一份可用的结构性配置：`proxy` 端口等结构项、`admin.host/port`、`log` 设置、`upstream` 全部（**含 apiKey**，便于用真实 provider 联调）；**不复制**本地客户端 Key（测试档新生成，便于区分）与管理口令；日志目录强制为 `logs-test`。
+- 启动时会醒目打印当前档位、配置文件与日志目录；状态接口也返回 `profile`，网页右下角角标在测试档会显示「· 测试档」。
 - 网页修改后写回并热更新（转发模块读取最新配置）。
 
 **配置项草案**
@@ -285,7 +299,7 @@ LocalAIProxy/
 | POST | `/api/admin/logout` | 退出登录 |
 | GET | `/api/admin/config` | 读取配置（密钥打码） |
 | PUT | `/api/admin/config` | 修改上游/日志等配置 |
-| POST | `/api/admin/test` | 用当前配置向上游发一次真实测试请求（支持流式返回） |
+| POST | `/api/admin/test` | 用当前配置发一次真实测试请求：`via=upstream` 直连上游 / `via=proxy` 经本地代理；支持流式返回 |
 | POST | `/api/admin/keys/rotate` | 重置本地客户端 Key |
 | GET | `/api/admin/logs?limit=&before=` | 内存窗口分页查询 |
 | GET | `/api/admin/logs/stream?since=` | SSE 实时推送 |
@@ -340,6 +354,7 @@ Electron 主进程在启动服务前注入三个环境变量，使后端在打�
 | `LOCAL_AI_PROXY_HOME` | `./data` | 便携 exe 同级的 `data/`（`PORTABLE_EXECUTABLE_DIR/data`） |
 | `LOCAL_AI_PROXY_PUBLIC_DIR` | `<repo>/public` | `resources/public`（通过 `extraResources` 放在 asar 之外） |
 | `LOCAL_AI_PROXY_VERSION` | 读 `package.json` | `app.getVersion()`（打包后无 package.json 可读） |
+| `LOCAL_AI_PROXY_PROFILE` | 不设即 `user` 档 | 同左（环境变量天然继承；`test` 档会切到 `config-test.json` 与 `logs-test/`，窗口标题带 `[测试档]`） |
 
 ### 9.4 构建与打包（逐系统构建）
 
@@ -352,6 +367,7 @@ Electron 主进程在启动服务前注入三个环境变量，使后端在打�
 | `npm run dist:linux` | `releases/LocalAIProxy-<ver>-linux.AppImage` / `.deb` | Linux |
 
 - **按用户要求：仓库只提供构建脚本，不提交任何平台的二进制产物**；每个平台的产物需在对应系统上现场构建（跨平台交叉构建不可靠，macOS 尤其必须在 macOS 上构建）。
+- **构建自动保护用户数据**：`dist:*` 实际执行的是 `scripts/dist.mjs`，它会在 electron-builder 清理 `releases/` **之前**把 `releases/data`（用户真实配置与日志）复制到**仓库之外**的临时目录，构建完成后自动恢复并逐文件校验，校验通过才删除临时备份。这样「重建 exe 会删掉用户数据」由代码兜住，不再依赖人工记忆。
 - Windows 采用 **portable** 目标：双击即用，不解压、不写注册表；数据写在 exe 同级 `data/` 目录，删除该目录即彻底清除。
 - 产物统一输出到 `releases/`（已加入 `.gitignore`）。
 - **国内网络提示**：Electron 本体与其打包工具（NSIS、winCodeSign 等）默认从 GitHub 下载，国内可能失败。构建前设置镜像即可：

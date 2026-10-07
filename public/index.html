@@ -66,6 +66,13 @@
           <span id="saveHint" class="hint"></span>
         </div>
         <div class="row">
+          <label>测试路径</label>
+          <select id="testVia">
+            <option value="upstream">直连上游 — 绕过本地代理，只验证 Provider 配置是否正确</option>
+            <option value="proxy">经本地代理 — 走 8787 完整链路，含本地 Key 鉴权与日志记录</option>
+          </select>
+        </div>
+        <div class="row">
           <label>测试提示词</label>
           <input id="testPrompt" placeholder="你好，请用一句话介绍你自己。" />
         </div>

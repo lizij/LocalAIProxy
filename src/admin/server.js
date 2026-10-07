@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { randomSecret } from '../config.js';
+import { randomSecret, PROFILE } from '../config.js';
 import { listLogFiles, readLogFile } from '../log/reader.js';
 import { safeEqual } from '../proxy/auth.js';
 import { json, readJson } from './http.js';
@@ -190,6 +190,7 @@ export function createAdminServer(ctx) {
         const cfg = ctx.config.get();
         return json(res, 200, {
           version: VERSION,
+          profile: PROFILE,
           startedAt: ctx.startedAt,
           uptimeSeconds: Math.round(process.uptime()),
           upstreamConfigured: !!cfg.upstream.baseUrl,

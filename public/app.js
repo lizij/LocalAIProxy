@@ -64,27 +64,271 @@ function pre(text) {
   return p;
 }
 
-function section(title, obj) {
+function flash(btn, text) {
+  const old = btn.textContent;
+  btn.textContent = text;
+  setTimeout(() => {
+    btn.textContent = old;
+  }, 1200);
+}
+
+async function copyToClipboard(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+    flash(btn, '已复制');
+  } catch {
+    flash(btn, '复制失败');
+  }
+}
+
+function downloadText(filename, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+/**
+ * 渲染单个文本块。
+ * 短内容完整显示；超长内容默认折叠，并给出明确的「展开全部」入口——
+ * 展开后完整撑开、不再裁剪，从根本上避免“内容看起来被截断”。
+ */
+function blockEl(text) {
+  const box = document.createElement('div');
+  box.className = 'block';
+
+  const p = document.createElement('pre');
+  p.textContent = text;
+
+  const lines = text.split('\n').length;
+  const long = text.length > 1500 || lines > 20;
+  if (!long) {
+    box.append(p);
+    return box;
+  }
+
+  const bar = document.createElement('div');
+  bar.className = 'block-bar';
+  const toggle = document.createElement('button');
+  const label = (clamped) =>
+    clamped ? `展开全部（${text.length.toLocaleString()} 字符 · ${lines.toLocaleString()} 行）` : '收起';
+
+  p.classList.add('clamped');
+  toggle.textContent = label(true);
+  toggle.onclick = () => {
+    const clamped = p.classList.toggle('clamped');
+    toggle.textContent = label(clamped);
+  };
+  bar.append(toggle);
+  box.append(p, bar);
+  return box;
+}
+
+/**
+ * 渲染一个原文区块。
+ */
+function section(title, obj, name) {
   const wrap = document.createElement('div');
   wrap.className = 'sec';
+
+  const blocks = [];
+  if (obj && typeof obj.body === 'string') {
+    const metaObj = { ...obj };
+    delete metaObj.body;
+    blocks.push({ label: 'meta', text: JSON.stringify(metaObj, null, 2) });
+    blocks.push({ label: 'body', text: obj.body });
+  } else {
+    blocks.push({ label: '', text: JSON.stringify(obj, null, 2) });
+  }
+
+  const plain = blocks.map((b) => (b.label ? `# ${b.label}\n${b.text}` : b.text)).join('\n\n');
+  const chars = blocks.reduce((n, b) => n + b.text.length, 0);
+  const lines = blocks.reduce((n, b) => n + b.text.split('\n').length, 0);
+
+  const head = document.createElement('div');
+  head.className = 'sec-head';
+
   const h = document.createElement('div');
   h.className = 'sec-title';
   h.textContent = title;
-  wrap.append(h);
 
-  if (obj && typeof obj.body === 'string') {
-    const meta = { ...obj };
-    delete meta.body;
-    wrap.append(pre(JSON.stringify(meta, null, 2)));
-    const bh = document.createElement('div');
-    bh.className = 'sec-title small';
-    bh.textContent = 'body';
-    wrap.append(bh);
-    wrap.append(pre(obj.body));
-  } else {
-    wrap.append(pre(JSON.stringify(obj, null, 2)));
+  const meta = document.createElement('span');
+  meta.className = 'sec-meta';
+  meta.textContent = `${chars.toLocaleString()} 字符 · ${lines.toLocaleString()} 行`;
+
+  const actions = document.createElement('div');
+  actions.className = 'sec-actions';
+  const copyBtn = document.createElement('button');
+  copyBtn.textContent = '复制全文';
+  copyBtn.onclick = () => copyToClipboard(plain, copyBtn);
+  const dlBtn = document.createElement('button');
+  dlBtn.textContent = '下载';
+  dlBtn.onclick = () => downloadText(`${name || 'local-ai-proxy'}.txt`, plain);
+  actions.append(copyBtn, dlBtn);
+
+  head.append(h, meta, actions);
+  wrap.append(head);
+
+  for (const b of blocks) {
+    if (b.label) {
+      const lh = document.createElement('div');
+      lh.className = 'sec-head';
+      const lt = document.createElement('div');
+      lt.className = 'sec-title small';
+      lt.textContent = b.label;
+      lh.append(lt);
+      wrap.append(lh);
+    }
+    wrap.append(blockEl(b.text));
   }
   return wrap;
+}
+
+/* ---------- 摘要（面向普通用户，优先于原始报文阅读） ---------- */
+
+function truncate(s, n = 600) {
+  return s.length > n ? `${s.slice(0, n)} …（原文共 ${s.length.toLocaleString()} 字符）` : s;
+}
+
+function msgText(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((p) => {
+        if (typeof p === 'string') return p;
+        if (p?.type === 'text') return p.text || '';
+        if (p?.type === 'image_url') return '[图片]';
+        return `[${p?.type || 'part'}]`;
+      })
+      .join('\n');
+  }
+  return content == null ? '' : JSON.stringify(content);
+}
+
+/** 从原始响应里提取「人话」：回复文本、思考文本、结束原因、token 用量。 */
+function extractReply(rec) {
+  const resp = rec.response;
+  if (!resp) return null;
+  let content = '';
+  let reasoning = '';
+  let finish = '';
+  let model = '';
+  let usage = resp.usage || null;
+
+  if (resp.stream && typeof resp.body === 'string') {
+    for (const line of resp.body.split('\n')) {
+      const t = line.trim();
+      if (!t.startsWith('data:')) continue;
+      const p = t.slice(5).trim();
+      if (!p || p === '[DONE]') continue;
+      let obj;
+      try {
+        obj = JSON.parse(p);
+      } catch {
+        continue;
+      }
+      if (obj.model) model = obj.model;
+      const ch = obj.choices?.[0];
+      if (ch) {
+        if (ch.delta?.content) content += ch.delta.content;
+        if (ch.delta?.reasoning_content) reasoning += ch.delta.reasoning_content;
+        if (ch.finish_reason) finish = ch.finish_reason;
+      }
+      if (obj.usage) usage = obj.usage;
+    }
+  } else if (resp.body && typeof resp.body === 'object') {
+    const b = resp.body;
+    model = b.model || '';
+    const ch = b.choices?.[0];
+    if (ch) {
+      content = msgText(ch.message?.content);
+      reasoning = msgText(ch.message?.reasoning_content);
+      finish = ch.finish_reason || '';
+    }
+    usage = b.usage || usage;
+  }
+  return { content, reasoning, finish, model, usage };
+}
+
+function sumRow(k, v, cls) {
+  const row = document.createElement('div');
+  row.className = 'sum-row' + (cls ? ' ' + cls : '');
+  const kk = document.createElement('span');
+  kk.className = 'sum-k';
+  kk.textContent = k;
+  const vv = document.createElement('span');
+  vv.className = 'sum-v';
+  vv.textContent = v;
+  row.append(kk, vv);
+  return row;
+}
+
+function sumMsg(role, cls, text) {
+  const row = document.createElement('div');
+  row.className = 'sum-msg';
+  const r = document.createElement('span');
+  r.className = 'role ' + cls;
+  r.textContent = role;
+  const t = document.createElement('div');
+  t.className = 'txt';
+  t.textContent = text;
+  row.append(r, t);
+  return row;
+}
+
+function summaryEl(rec) {
+  const box = document.createElement('div');
+  box.className = 'summary';
+
+  const title = document.createElement('div');
+  title.className = 'sum-title';
+  title.textContent = '摘要';
+  box.append(title);
+
+  // 发送了什么
+  const reqBody = rec.request?.body;
+  const msgs = Array.isArray(reqBody?.messages) ? reqBody.messages : [];
+  const other = reqBody && typeof reqBody === 'object'
+    ? Object.keys(reqBody).filter((k) => !['messages', 'model', 'stream'].includes(k))
+    : [];
+  const bits = [];
+  if (reqBody?.model) bits.push(`模型 ${reqBody.model}`);
+  bits.push(reqBody?.stream ? '流式' : '非流式');
+  bits.push(`消息 ${msgs.length} 条`);
+  if (other.length) bits.push(`其它参数 ${other.join(' / ')}`);
+
+  box.append(sumRow('发送', bits.join(' · ')));
+  box.append(sumRow('目标', `${rec.request?.method || ''} ${rec.request?.url || ''}`));
+  for (const m of msgs) box.append(sumMsg(m.role || '?', m.role || '', truncate(msgText(m.content))));
+
+  // 收到了什么
+  if (rec.error) {
+    box.append(sumRow('接收', `失败：${rec.error.message}`, 'bad'));
+  } else if (!rec.response) {
+    box.append(sumRow('接收', '等待响应…', 'dim'));
+  } else {
+    const reply = extractReply(rec);
+    const line = `HTTP ${rec.response.status} · 耗时 ${rec.durationMs ?? '-'} ms`;
+    box.append(sumRow('接收', reply.finish ? `${line} · finish_reason=${reply.finish}` : line));
+    if (reply.reasoning) box.append(sumMsg('思考', 'reasoning', truncate(reply.reasoning)));
+    if (reply.content) box.append(sumMsg('助手', 'assistant', truncate(reply.content)));
+    if (!reply.reasoning && !reply.content) box.append(sumRow('回复', '（响应中没有文本内容）', 'dim'));
+
+    const u = reply.usage;
+    if (u) {
+      const ubits = [`输入 ${u.prompt_tokens ?? '-'}`, `输出 ${u.completion_tokens ?? '-'}`, `合计 ${u.total_tokens ?? '-'}`];
+      if (u.prompt_tokens_details?.cached_tokens != null) ubits.push(`缓存命中 ${u.prompt_tokens_details.cached_tokens}`);
+      if (u.completion_tokens_details?.reasoning_tokens != null) ubits.push(`思考 ${u.completion_tokens_details.reasoning_tokens}`);
+      box.append(sumRow('用量', ubits.join(' · ')));
+    }
+    if (rec.response.truncated) box.append(sumRow('提示', '原始响应过大，已截断记录', 'bad'));
+  }
+
+  return box;
 }
 
 function searchTextOf(rec) {
@@ -141,10 +385,18 @@ function buildItem(rec) {
   const body = document.createElement('div');
   body.className = 'log-body';
   body.hidden = true;
-  if (rec.request) body.append(section('→ 请求 (发往 Provider)', rec.request));
-  if (rec.response) body.append(section('← 响应', rec.response));
-  if (!rec.response && rec.status === 'pending') body.append(section('← 响应', { status: '等待中…' }));
-  if (rec.error) body.append(section('✗ 错误', rec.error));
+
+  // 先给「人话」摘要，再给原始报文
+  body.append(summaryEl(rec));
+  const rawHead = document.createElement('div');
+  rawHead.className = 'raw-head';
+  rawHead.textContent = '原始报文（排查细节用）';
+  body.append(rawHead);
+
+  if (rec.request) body.append(section('→ 请求 (发往 Provider)', rec.request, `seq${rec.seq}-request`));
+  if (rec.response) body.append(section('← 响应', rec.response, `seq${rec.seq}-response`));
+  if (!rec.response && rec.status === 'pending') body.append(section('← 响应', { status: '等待中…' }, `seq${rec.seq}-response`));
+  if (rec.error) body.append(section('✗ 错误', rec.error, `seq${rec.seq}-error`));
 
   head.addEventListener('click', () => {
     body.hidden = !body.hidden;
@@ -287,7 +539,7 @@ async function loadConfig() {
   const st = await api('/api/admin/status');
   const host = location.hostname || '127.0.0.1';
   $('baseUrlOut').value = `http://${host}:${st.proxy.port}/v1`;
-  $('version').textContent = `LocalAIProxy v${st.version || '0.0.0'}`;
+  $('version').textContent = `LocalAIProxy v${st.version || '0.0.0'}${st.profile === 'test' ? ' · 测试档' : ''}`;
   $('apiKeyOut').value = config.proxy.apiKey;
   $('requireClientKey').checked = !!config.proxy.requireClientKey;
   $('upBaseUrl').value = config.upstream.baseUrl || '';
@@ -391,25 +643,27 @@ $('historyBtn').onclick = async () => {
 async function runTest() {
   const prompt = $('testPrompt').value.trim();
   const stream = $('testStream').checked;
+  const via = $('testVia').value;
+  const viaLabel = via === 'proxy' ? '经本地代理' : '直连上游';
   const box = $('testBox');
   const out = $('testOutput');
   const meta = $('testMeta');
 
   box.hidden = false;
   out.textContent = '';
-  meta.textContent = '测试中…';
+  meta.textContent = `测试中…（${viaLabel}）`;
   $('testHint').textContent = '';
 
   try {
     const res = await fetch('/api/admin/test', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ prompt, stream }),
+      body: JSON.stringify({ prompt, stream, via }),
     });
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      meta.textContent = '✗ ' + (data.error || `HTTP ${res.status}`);
+      meta.textContent = `✗ ${viaLabel} · ` + (data.error || `HTTP ${res.status}`);
       if (data.detail) out.textContent = data.detail;
       $('testHint').textContent = '失败';
       return;
@@ -418,7 +672,7 @@ async function runTest() {
     if (!stream) {
       const data = await res.json();
       meta.textContent =
-        `✓ HTTP ${data.status} · model=${data.model}` +
+        `✓ ${viaLabel} · HTTP ${data.status} · model=${data.model}` +
         (data.usage ? ` · tokens=${data.usage.total_tokens ?? '-'}` : '');
       out.textContent = data.content || JSON.stringify(data.raw, null, 2);
       $('testHint').textContent = '成功';
@@ -457,7 +711,7 @@ async function runTest() {
         if (obj.usage) usage = obj.usage;
       }
     }
-    meta.textContent = `✓ 流式完成 · model=${model}` + (usage ? ` · tokens=${usage.total_tokens ?? '-'}` : '');
+    meta.textContent = `✓ ${viaLabel} · 流式完成 · model=${model}` + (usage ? ` · tokens=${usage.total_tokens ?? '-'}` : '');
     $('testHint').textContent = '成功';
   } catch (err) {
     meta.textContent = '✗ ' + err.message;

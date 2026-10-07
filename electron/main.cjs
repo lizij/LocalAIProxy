@@ -32,6 +32,7 @@ function startBackend() {
 }
 
 function createWindow(adminPort) {
+  const isTest = process.env.LOCAL_AI_PROXY_PROFILE === 'test';
   const win = new BrowserWindow({
     width: 1180,
     height: 820,
@@ -39,7 +40,7 @@ function createWindow(adminPort) {
     minHeight: 620,
     show: false,
     backgroundColor: '#0f1115',
-    title: `LocalAIProxy v${app.getVersion()}`,
+    title: `LocalAIProxy v${app.getVersion()}${isTest ? ' [测试档]' : ''}`,
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
