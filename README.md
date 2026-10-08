@@ -2,7 +2,7 @@
 
 **OpenAI 协议兼容的本地 AI 转发代理**——对外提供一个本地 BaseURL + APIKey，把请求原样透传给任意公开 AI Provider，并用网页实时展示「发出去的请求原文」和「收到的响应原文」。
 
-> 适合场景：不透明的 agent 工具只认一个 OpenAI 兼容入口，而你想换成 DeepSeek 等任意 Provider，同时想看清理它到底发了什么。
+> 适合场景：不透明的 agent 工具只认一个 OpenAI 兼容入口，而你想换成 DeepSeek 等任意 Provider，同时想看清它到底发了什么。
 
 ---
 
@@ -36,11 +36,11 @@ LocalAIProxy 把这三件事一次解决：**统一入口 + 原样透传 + 全�
 
 ### 方式一：桌面端（推荐）
 
-仓库**不提交任何二进制产物**，需在本机构建（见 [从源码构建](#从源码构建)）。构建后直接双击运行产物：
+仓库**不提交任何二进制产物**，需在本机构建（见 [构建安装包](#构建安装包)）。构建后直接双击运行产物：
 
 - Windows：`releases/LocalAIProxy-<版本>-win-portable.exe`（便携版，双击即用，不写注册表）
 - macOS：`releases/LocalAIProxy-<版本>-mac.dmg`
-- Linux：`releases/LocalAIProxy-<版本>-linux.AppImage`
+- Linux：`releases/LocalAIProxy-<版本>-linux.AppImage`（**尚未验证**，见 [docs/build.md](docs/build.md) §7）
 
 启动后会自动打开窗口，窗口关闭时服务与进程一并退出。
 
@@ -144,6 +144,8 @@ OPENAI_BASE_URL=http://<本机局域网IP>:8787/v1
 | `log.maxFileSizeMB` | 64 | 单个日志文件上限，超过即轮转 |
 | `log.maxDays` | 7 | 日志保留天数 |
 
+> 配置项的内部结构与默认值，详见 [docs/design.md](docs/design.md) §6.6。
+
 ### 数据目录
 
 | 运行方式 | 数据目录 |
@@ -160,72 +162,38 @@ OPENAI_BASE_URL=http://<本机局域网IP>:8787/v1
 | 档位 | 启用方式 | 配置文件 | 日志目录 | 用途 |
 | --- | --- | --- | --- | --- |
 | 用户档（默认） | 无需设置 | `config.json` | `logs/` | 你的真实使用 |
-| 测试档 | `LOCAL_AI_PROXY_PROFILE=test`（或 `npm run start:test`） | `config-test.json` | `logs-test/` | 开发 / 联调 |
+| 测试档 | `LOCAL_AI_PROXY_PROFILE=test`（或 `npm run start:test`） | `config-test.json` | `logs-test/` | 开发 / 联调 / 验证 |
 
-测试档**永远不会读写你的 `config.json`**；首次启动时它会从 `config.json` **只读**复制一份结构配置（含上游信息，便于直连真实 Provider 联调），但日志写入独立的 `logs-test/`，不会污染你的历史日志。
+测试档**永远不会读写你的 `config.json`**；首次启动时它会从 `config.json` **只读**复制一份结构配置（含上游信息，便于直连真实 Provider 联调），但日志写入独立的 `logs-test/`，不会污染你的历史日志。详见 [docs/test.md](docs/test.md)。
 
 ---
 
-## 从源码构建
+## 构建安装包
+
+仓库**不提交任何平台的二进制产物**，需在**目标系统**上现场构建：
 
 ```bash
 npm install
+npm run dist:mac     # 或：npm run dist:win / npm run dist:linux（必须在对应系统上执行）
 ```
 
-然后按目标系统执行：
-
-| 命令 | 产物 | 必须在哪个系统执行 |
-| --- | --- | --- |
-| `npm run dist:win` | Windows 便携版 exe | Windows |
-| `npm run dist:mac` | macOS dmg | macOS |
-| `npm run dist:linux` | Linux AppImage + deb | Linux |
-
-其他脚本：
-
-```bash
-npm start              # 命令行模式（用户档）
-npm run start:test     # 命令行模式（测试档：config-test.json / logs-test）
-npm run dev:desktop    # 本地开发桌面端
-npm run build:backend  # 只把后端打成 dist/backend.cjs
-```
-
-> `dist:*` 实际由 `scripts/dist.mjs` 执行：它会在 electron-builder 清理 `releases/` 之前，先把 `releases/data`（你的真实配置与日志）备份到仓库之外，构建完成后自动恢复并校验，所以**重建 exe 不会丢你的数据**。
-
-**国内网络**：Electron 及其打包工具默认从 GitHub 下载，可能失败，先设置镜像：
-
-```powershell
-$env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
-$env:ELECTRON_BUILDER_BINARIES_MIRROR="https://npmmirror.com/mirrors/electron-builder-binaries/"
-npm run dist:win
-```
-
-若 `npm install` 中断导致 `node_modules/electron/dist` 缺失，单独补跑：`node node_modules/electron/install.js`
-
-**macOS 提示**：dmg 产物未签名、未公证，首次打开会被 Gatekeeper 拦截。请右键点按应用图标选择「打开」，或执行：
-
-```bash
-xattr -dr com.apple.quarantine /Applications/LocalAIProxy.app
-```
+产物输出到 `releases/`。**完整的构建说明**——逐系统命令与产物命名、国内镜像、用户数据保护（`scripts/dist.mjs`）、产物内含新代码的校验、各平台限制（含 macOS Gatekeeper 提示与 Linux 未验证）——见 [docs/build.md](docs/build.md)。
 
 ---
 
-## 目录结构
+## 项目结构
 
 ```
-src/
-  index.js          # 命令行入口
-  app.js            # 应用装配（命令行与桌面共用）
-  config.js         # 配置读写 / 默认值 / 密钥打码
-  version.js        # 版本号
-  proxy/            # 代理端口：server / forward / auth
-  log/              # 日志：store（Ring Buffer + JSONL）/ reader
-  admin/            # 管理端口：server / http / test
-electron/main.cjs   # 桌面端主进程：启动服务 + 窗口生命周期
-public/             # 网页控制台（原生 HTML/CSS/JS，无构建）
-scripts/            # 构建脚本
-docs/DESIGN.md      # 方案设计
-AGENTS.md           # 协作指南（命令、版本规约、代码约束、Git 规范）
+src/        后端（代理 / 日志 / 管理端口）
+public/     网页控制台（原生 HTML/CSS/JS，无构建）
+electron/   桌面端主进程
+scripts/    构建脚本
+docs/       文档（design / test / build / contributing）
+data/       运行时数据（git 忽略）
+releases/   打包产物（git 忽略）
 ```
+
+详细的目录结构与每个文件职责见 [docs/design.md](docs/design.md) §5。各文档的定位见下方「[文档](#文档)」。
 
 ### 端口一览
 
@@ -245,12 +213,18 @@ AGENTS.md           # 协作指南（命令、版本规约、代码约束、Git 
 
 ## 版本号
 
-采用标准 semver 三位，**单一来源是 `package.json` 的 `version`**，并自动展示在网页控制台右下角角标、桌面端窗口标题、`/health` 与 `/api/admin/status` 的 `version` 字段中。
+采用标准 semver 三位，**单一来源是 `package.json` 的 `version`**，并自动展示在网页控制台右下角角标、桌面端窗口标题、`/health` 与 `/api/admin/status` 的 `version` 字段中。规约见 [docs/contributing.md](docs/contributing.md) §1。
 
 ## 文档
 
-- [docs/DESIGN.md](docs/DESIGN.md) —— 架构、模块设计、接口、构建与决策记录
-- [AGENTS.md](AGENTS.md) —— 命令速查、版本规约、代码约束、Git/GitHub 协作规范
+| 文档 | 内容 |
+| --- | --- |
+| [README.md](README.md) | 产品介绍、安装、使用、配置（本文件） |
+| [AGENTS.md](AGENTS.md) | AI agent / 开发协作入口：文档路由、红线 |
+| [docs/design.md](docs/design.md) | 架构、模块设计、API、目录结构、决策与待确认 |
+| [docs/test.md](docs/test.md) | 测试方法、**换版标准顺序**、改动自检清单 |
+| [docs/build.md](docs/build.md) | 构建打包、国内镜像、产物校验、平台限制 |
+| [docs/contributing.md](docs/contributing.md) | 版本号规约、代码约束、Git 提交与推送规范 |
 
 ## License
 

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
  * - 命令行模式：直接读取 package.json
  * - Electron 打包后：主进程通过 app.getVersion() 注入 LOCAL_AI_PROXY_VERSION
  *
- * 版本号为标准 semver 三位（MAJOR.MINOR.PATCH），由 AGENTS.md 规约要求随改动自更新。
+ * 版本号为标准 semver 三位（MAJOR.MINOR.PATCH），由 docs/contributing.md 的规约要求随改动自更新。
  */
 function readFromPackageJson() {
   try {

@@ -1,6 +1,8 @@
 # LocalAIProxy 方案设计
 
 > 一个 OpenAI 协议兼容的本地 AI 转发代理：对外提供本地 BaseURL + APIKey，对内把请求透明转发到任意公开 AI Provider，并提供网页实时查看请求/响应原文。
+>
+> 本文件是**设计与方案的权威说明**。构建打包见 [docs/build.md](build.md)，测试与换版顺序见 [docs/test.md](test.md)，开发协作规范见 [docs/contributing.md](contributing.md)。
 
 ---
 
@@ -89,12 +91,15 @@
 ```
 LocalAIProxy/
 ├─ package.json               # 版本号单一来源 + electron-builder 配置 + 脚本
-├─ AGENTS.md                  # 代理协作指南（命令、版本规约、约束、Git 规范）
-├─ README.md                  # 项目说明（面向使用者：快速开始、配置、构建）
+├─ AGENTS.md                  # agent 编程入口（简介、关键事实、命令速查、文档路由、红线）
+├─ README.md                  # 项目说明（面向使用者：产品、快速开始、使用、配置）
 ├─ LICENSE                    # Apache-2.0
 ├─ .gitignore
 ├─ docs/
-│  └─ DESIGN.md               # 本文件
+│  ├─ design.md               # 本文件：设计与方案
+│  ├─ test.md                 # 测试与发布（含换版标准顺序）
+│  ├─ build.md                # 构建与打包
+│  └─ contributing.md         # 开发协作规范（版本号 / 代码约束 / Git）
 ├─ electron/
 │  └─ main.cjs                # Electron 主进程：启动服务 + 创建窗口 + 生命周期
 ├─ scripts/
@@ -235,7 +240,7 @@ LocalAIProxy/
 2. **多 Provider 配置**：卡片列表展示全部 Provider，点击卡片即切换「当前启用」的一项（高亮 + 「使用中」标签），另可新增 / 编辑 / 删除。每个 Provider 含 名称、Base URL、API Key、兜底 model、是否跳过证书校验。保存后即时生效：转发模块每条请求实时读配置，切换无需重启。
    > 展开的长日志条目，其头部 `.log-head` 用 `position: sticky; top: 0` 吸附在日志滚动容器顶部——因为条目本身很高时，用户仍能随时点头部把它收起。因此 `.log-item` **不能**再设 `overflow: hidden`（否则会成为 sticky 的裁剪/参照容器而使吸顶失效），改为仅保留 `flex: none`。
 3. **网页内测试（两条路径，界面上可选、结果里会标明用了哪条）**：均由「保存并测试」触发，测试结果在页面内流式渲染（含状态码与 token 用量）。
-   - **直连上游**（`via=upstream`，默认）：绕过本地代理直接打上游 `/v1/chat/completions`，只用于验证 Provider 的 baseUrl / apiKey / model 是否正确；该次请求以 `admin:test(直连上游)` 记为一条日志。
+   - **直连上游**（`via=upstream`，默认）：绕过本地代理、按同一套 URL 拼接规则直接请求上游，只用于验证 Provider 的 baseUrl / apiKey / model 是否正确；该次请求以 `admin:test(直连上游)` 记为一条日志。
    - **经本地代理**（`via=proxy`）：打本机 `http://127.0.0.1:<proxyPort>/v1/chat/completions` 并携带**本地 Key**，验证端到端链路（本地 Key 鉴权 → 转发 → 日志落库）。此时不在此处重复记日志，由代理自身记录，日志里能看到一条真实的客户端请求。
 4. **本地 Key 管理**：查看/重置客户端访问 Key，一键复制示例 base_url。
 5. **服务状态**：监听地址、请求计数、最近错误、日志文件列表与历史加载。
@@ -384,27 +389,11 @@ Electron 主进程在启动服务前注入三个环境变量，使后端在打�
 >
 > **Linux 为什么标注「未验证」**：同一段回退逻辑对 Linux 会取 `path.dirname(app.getPath('exe'))`。AppImage 运行时的 exe 位于 `/tmp/.mount_*/`（只读 squashfs 挂载，重启即失效）、deb 安装到系统目录（普通用户不可写），二者都可能让 `data/` 写不进去或随重启丢失。该路径**尚未在任何 Linux 发行版上实测**，故此处先如实标注、`electron/main.cjs` 也加了同款注释，**不要照搬现状**，待实测确认后再决定是否把 Linux 也改为 `app.getPath('userData')`。
 
-### 9.4 构建与打包（逐系统构建）
+### 9.4 构建与打包
 
-后端用 **esbuild** 打成一个 CJS 文件 `dist/backend.cjs`，再交给 **electron-builder** 打包。之所以先 bundle 成 CJS，是为了规避「asar + ESM」的加载问题，并让 Electron 主进程可直接 `require`。
+后端用 **esbuild** 打成一个 CJS 文件 `dist/backend.cjs`（`scripts/build-backend.mjs`），再交给 **electron-builder** 打包；先 bundle 成 CJS 是为了规避「asar + ESM」的加载问题，并让 Electron 主进程可直接 `require`。
 
-| 命令 | 产物 | 必须在哪个系统上执行 |
-| --- | --- | --- |
-| `npm run dist:win` | `releases/LocalAIProxy-<ver>-win-portable.exe`（便携版单文件） | Windows |
-| `npm run dist:mac` | `releases/LocalAIProxy-<ver>-mac.dmg` | macOS |
-| `npm run dist:linux` | `releases/LocalAIProxy-<ver>-linux.AppImage` / `.deb` | Linux |
-
-- **按用户要求：仓库只提供构建脚本，不提交任何平台的二进制产物**；每个平台的产物需在对应系统上现场构建（跨平台交叉构建不可靠，macOS 尤其必须在 macOS 上构建）。
-- **构建脚本显式 `--publish never`**：electron-builder 一旦检测到 CI 环境变量（如 `CI=true`）就会「隐式发布」产物到 GitHub Releases，缺少 `GH_TOKEN` 时会以失败码结束整个构建——**产物其实已经生成**，但脚本返回失败，容易误判为构建失败。本项目只产出本地安装包，不自动发布，故由 `scripts/dist.mjs` 统一传入 `--publish never`。
-- **构建自动保护用户数据**：`dist:*` 实际执行的是 `scripts/dist.mjs`，它会在 electron-builder 清理 `releases/` **之前**把 `releases/data`（用户真实配置与日志）复制到**仓库之外**的临时目录，构建完成后自动恢复并逐文件校验，校验通过才删除临时备份。这样「重建 exe 会删掉用户数据」由代码兜住，不再依赖人工记忆。
-- Windows 采用 **portable** 目标：双击即用，不解压、不写注册表；数据写在 exe 同级 `data/` 目录，删除该目录即彻底清除。
-- 产物统一输出到 `releases/`（已加入 `.gitignore`）。**构建成功后自动清理中间产物**（`mac-arm64/`、`win-unpacked/`、`linux-unpacked/` 等中间目录，以及 `.blockmap`、`latest-*.yml`、`builder-debug.yml` 等自动更新元数据），`releases/` 只保留最终安装包（dmg / exe / AppImage / deb）与用户运行数据（`releases/data/`）。
-- **国内网络提示**：Electron 本体与其打包工具（NSIS、winCodeSign 等）默认从 GitHub 下载，国内可能失败。构建前设置镜像即可：
-  ```powershell
-  $env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
-  $env:ELECTRON_BUILDER_BINARIES_MIRROR="https://npmmirror.com/mirrors/electron-builder-binaries/"
-  npm run dist:win
-  ```
+**逐系统构建命令、产物命名、国内镜像、用户数据保护（`scripts/dist.mjs`）、产物内含新代码的校验、各平台限制**等完整说明统一维护在 **[docs/build.md](build.md)**，本文件不再重复。
 
 ### 9.5 其它
 
@@ -451,7 +440,7 @@ Electron 主进程在启动服务前注入三个环境变量，使后端在打�
 7. ✅ **网页内配置与测试**：新增 `POST /api/admin/test`，免命令行完成 Provider 配置与连通性验证。
 8. ✅ **桌面形态**：Electron 内嵌 Chromium（三系统统一渲染）；单一实例、前台式；窗口可最小化，关窗即进程与服务全部退出，无后台残留。
 9. ✅ **分发形式**：Windows 采用便携版单 exe；**仓库只提供逐系统的构建脚本，不提交二进制产物**；产物输出到 `releases/`。
-10. ✅ **版本号**：标准 semver 三位，单一来源为 `package.json`，随改动自更新（见第 13 节），并在网页角落与窗口标题展示。
+10. ✅ **版本号**：标准 semver 三位，单一来源为 `package.json`，随改动自更新（规约见 [docs/contributing.md](contributing.md) §1），并在网页角落与窗口标题展示。
 
 **已确认（2026-10-08）**
 
@@ -459,7 +448,7 @@ Electron 主进程在启动服务前注入三个环境变量，使后端在打�
 12. ✅ **控制台分 tab**：拆为「上游 Provider / 请求日志 / 本地接入」三个 tab；首页按「是否已配置 Provider」判定，并用 `localStorage` 记住上次选择。
 13. ✅ **日志头部吸顶**：展开的长日志条目，其头部 sticky 吸附在列表顶部，随时可点击收起。
 14. ✅ **重复启动提示**：保持单实例锁不变，但旧实例在新版本启动时弹原生对话框（显示两个版本号，可一键退出当前实例），消除「双击新版却看到旧界面」的无提示困惑。
-15. ✅ **换版标准顺序**：终止旧实例（macOS 额外卸载旧 dmg 卷）→ 清理旧产物 → 递增版本号 → 构建 → 校验产物内含新代码 → 启动新版本。先退进程再清理，是为避免 Windows 文件锁导致「构建中途失败、留下半清理状态」。
+15. ✅ **换版标准顺序**：终止旧实例（macOS 额外卸载旧 dmg 卷）→ 清理旧产物 → 递增版本号 → 构建 → 校验产物内含新代码 → 启动新版本。完整步骤与「为何先退进程」见 [docs/test.md](test.md) §6（唯一权威出处）。
 
 **待确认**
 
@@ -469,10 +458,4 @@ Electron 主进程在启动服务前注入三个环境变量，使后端在打�
 
 ## 13. 版本号规约
 
-- 采用**标准 semver 三位**：`MAJOR.MINOR.PATCH`。
-- **单一来源**：`package.json` 的 `version`；其它文件不得硬编码版本号。
-  - 命令行模式：`src/version.js` 读取 `package.json`。
-  - 桌面模式：主进程注入 `LOCAL_AI_PROXY_VERSION = app.getVersion()`。
-- **自更新**：每次有效改动都必须递增版本号——破坏性变更升 MAJOR、新增功能升 MINOR、修复/文档/重构升 PATCH。
-- **展示位置**：网页控制台右下角角标、Electron 窗口标题、`/health` 与 `/api/admin/status` 的 `version` 字段。
-- 详细执行要求见 `AGENTS.md` 第 3 节。
+已统一维护在 **[docs/contributing.md](contributing.md) §1**（版本号规约与协作规范集中在该文件，本文件不再重复）。
