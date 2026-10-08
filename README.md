@@ -68,9 +68,11 @@ npm start
    | 字段 | 示例 |
    | --- | --- |
    | 名称 | `DeepSeek` |
-   | Base URL | `https://api.deepseek.com` |
+   | Base URL | `https://api.deepseek.com`；上游自带版本段时填到版本段为止，如火山方舟 `https://ark.cn-beijing.volces.com/api/v3` |
    | API Key | 你在该 Provider 申请的 Key |
    | Model（兜底） | `deepseek-chat` |
+
+   > Base URL 是**上游 API 根**。客户端工具固定请求 `/v1/...`；当上游路径不是 `/v1`（如火山方舟是 `/api/v3`）时，以你在 Base URL 里填写的为准，代理不会重复拼接 `/v1`。
 
    保存后列表里会出现这张卡片，并自动设为**使用中**。可以继续新增多个 Provider（如 Kimi、OpenAI），之后**点击任意卡片即可切换当前使用的一个**，切换即时生效、无需重启；卡片右侧的「编辑 / 删除」用于修改或移除。
 

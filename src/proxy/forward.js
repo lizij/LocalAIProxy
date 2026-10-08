@@ -44,7 +44,15 @@ function clientIp(req) {
   return req.socket?.remoteAddress || '';
 }
 
-/** 拼接上游完整 URL，自动避免 basePath 与请求路径重复（如 base 已含 /v1）。 */
+/**
+ * 拼接上游完整 URL。
+ *
+ * `baseUrl` 视为「上游 API 根」，可自带路径与版本段（如火山方舟
+ * `https://ark.cn-beijing.volces.com/api/v3`）。OpenAI 兼容客户端总是请求
+ * `/v1/<resource>`，其中 `/v1` 是**客户端侧**的协议版本段；当 baseUrl 自带路径时
+ * 以上游路径为准、剥掉客户端开头的 `/v1`，否则会拼出
+ * `/api/v3/v1/chat/completions` 这类错误地址（上游直接 404）。
+ */
 export function buildUpstreamUrl(baseUrl, originalUrl) {
   const base = new URL(baseUrl);
   const basePath = base.pathname.replace(/\/+$/, '');
@@ -54,7 +62,11 @@ export function buildUpstreamUrl(baseUrl, originalUrl) {
 
   let tail = pathOnly;
   if (basePath && (pathOnly === basePath || pathOnly.startsWith(basePath + '/'))) {
+    // 客户端路径已含 basePath（如 base=/v1、请求=/v1/chat/completions）：去掉重复段
     tail = pathOnly.slice(basePath.length);
+  } else if (basePath) {
+    // baseUrl 自带路径：用上游路径取代客户端固定的 /v1 版本段
+    tail = pathOnly.replace(/^\/v1(?=\/|$)/, '');
   }
   let full = base.origin + basePath + tail;
   if (query) full += '?' + query;

@@ -136,7 +136,11 @@ LocalAIProxy/
 
 **通用透传**：代理端口接收 `/v1/*` 的所有方法（GET/POST），把方法、路径、查询串、请求体、请求头转发到上游。
 
-- **URL 拼接**：`activeProvider.baseUrl` + 请求路径（例如 `https://api.deepseek.com` + `/v1/chat/completions`）。注意处理 baseurl 末尾是否带 `/`、是否已含 `/v1`。
+- **URL 拼接**：`activeProvider.baseUrl` 视为「上游 API 根」，可自带路径与版本段。OpenAI 兼容客户端总是请求 `/v1/<resource>`，其中 `/v1` 是**客户端侧**的协议版本段，因此：
+  - baseUrl **无路径**（如 `https://api.deepseek.com`）→ 原样拼接：`https://api.deepseek.com/v1/chat/completions`；
+  - baseUrl **已含该段**（如 `https://api.deepseek.com/v1`、relay 的 `https://.../v1`）→ 去掉客户端路径里重复的段；
+  - baseUrl **自带不同版本段**（如火山方舟 `https://ark.cn-beijing.volces.com/api/v3`）→ **以 baseUrl 的路径为准**，剥掉客户端开头的 `/v1`，得到 `/api/v3/chat/completions`。
+  > 曾因缺少第 3 条而把火山方舟拼成 `/api/v3/v1/chat/completions` 导致 404。另需处理 baseUrl 末尾是否带 `/`。
 - **多 Provider 与启用切换**：配置里维护一个 Provider 列表（`providers[]`）与一个启用指针（`activeProviderId`）。转发时始终取**当前启用的那个** Provider（指针失效则回落到列表首项）；每条请求都实时读配置，因此网页上切换 Provider **即时生效、无需重启**。
 - **请求头处理**：
   - 覆盖 `Authorization: Bearer <当前启用 Provider 的 APIKey>`（客户端带来的本地 Key **不转发**给上游）；
