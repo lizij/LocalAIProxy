@@ -95,15 +95,44 @@ async function bootstrap() {
   }
 }
 
-// 单实例：重复启动只聚焦已有窗口，避免出现第二个服务进程。
-const gotLock = app.requestSingleInstanceLock();
+// 单实例：同一时间只运行一个服务进程。
+// 重复启动时，**提示必须由已运行的实例发出**——拿不到锁的新实例按 Electron 语义必须立即退出，
+// 自己弹不出任何界面。用 additionalData 把新实例的版本号带过去，才能明确告诉用户
+// 「已有 v旧 在运行，你刚启动的是 v新」，避免"双击新版本却看到旧界面"的困惑。
+const gotLock = app.requestSingleInstanceLock({ version: app.getVersion() });
 if (!gotLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (!mainWindow) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
+  app.on('second-instance', (event, argv, workingDirectory, additionalData) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+    const newVersion =
+      additionalData && typeof additionalData.version === 'string' ? additionalData.version : '';
+    const curVersion = app.getVersion();
+    // 开发模式（有终端）下可据此确认重复启动走到了哪个分支；打包后无终端，不影响用户。
+    console.log(
+      `[desktop] 收到重复启动请求：当前 v${curVersion}，新实例 v${newVersion || '未知'}` +
+        (newVersion && newVersion !== curVersion ? '（弹窗提示）' : '（同版本，仅聚焦窗口）'),
+    );
+    // 版本相同（或取不到）时只聚焦窗口，不打扰用户；只有版本不同才提示。
+    if (!mainWindow || !newVersion || newVersion === curVersion) return;
+    // 必须用异步弹窗：backend 服务与主进程是同一个 Node 进程，若用 showMessageBoxSync 会
+    // 阻塞事件循环，弹窗期间 8787/8788 会整体无响应（用户正在用的请求也会卡住）。
+    dialog
+      .showMessageBox(mainWindow, {
+        type: 'question',
+        buttons: ['退出当前实例', '保留当前实例'],
+        defaultId: 0,
+        cancelId: 1,
+        message: `LocalAIProxy 已在运行（v${curVersion}）`,
+        detail: `你刚启动的是 v${newVersion}，但同一时间只能运行一个实例。\n\n若要使用 v${newVersion}，请先退出当前实例，然后重新启动新版本。`,
+      })
+      .then(({ response }) => {
+        if (response === 0) app.quit();
+      })
+      .catch(() => {});
   });
 
   // 关闭窗口即整体退出（含 macOS），不驻留后台。

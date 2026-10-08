@@ -1,6 +1,6 @@
 {
   "name": "local-ai-proxy",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "OpenAI-compatible local AI forwarding proxy with a desktop GUI and a live request/response inspector.",
   "type": "module",
