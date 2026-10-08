@@ -148,7 +148,9 @@ data/                   # 运行时数据：config.json + logs/（git 忽略）
 
 ### 9.1 仓库信息
 
-- 远端：`https://github.com/lizij/LocalAIProxy.git`（公开仓库）
+- 仓库：`lizij/LocalAIProxy`（GitHub 公开仓库）。两种等价访问地址，**本地用哪种由环境探测决定（见 9.6），不要写死**：
+  - HTTPS：`https://github.com/lizij/LocalAIProxy.git`
+  - SSH：`git@github.com:lizij/LocalAIProxy.git`
 - 主分支：`main`
 - 远端已存在一个仅含 `LICENSE` 的初始提交，与本地历史无共同祖先。首次推送必须先 `git fetch origin` 再 `git rebase origin/main`，让本地提交接到远端之后，**严禁用 `--force` 覆盖远端**。
 
@@ -210,14 +212,28 @@ git diff --cached                  # 3. 复核差异
 git commit -m "feat(scope): 摘要"   # 4. 提交（版本号按第 3 节递增）
 git fetch origin                   # 5. 同步远端
 git rebase origin/main             # 6. 变基到最新
-git push origin main               # 7. 推送（首次可加 -u）
+git push origin main               # 7. 推送——若失败，按 9.6 探测其他通道
 ```
 
 **禁止**：向 `main` 强制推送（`--force` / `-f`）；用 `--no-verify` 跳过钩子；提交上述任何红线内容。
 
-### 9.6 由谁执行推送
+### 9.6 推送执行与认证处置
 
-- 用户已授权：**提交完成后由代理直接执行 `git push`**（本机凭据由 Git Credential Manager 保管，可非交互完成）。
-- 标准动作：`git fetch origin` → `git rebase origin/main` → `git push origin main` → `git ls-remote origin main` 核对远端 SHA 与本地 `git rev-parse HEAD` 一致。
-- 若推送被拒（如远端有新提交）：先 `git fetch` 再 `git rebase origin/main`，**不要**用 `--force` 掩盖冲突。
-- 若认证失败：不要尝试任何绕过手段，直接把 `git push origin main` 交给用户在自己终端执行（那里能安全弹出登录）。
+**原则**：提交完成后的推送由代理负责做完（用户已授权代理直接执行 `git push`）。遇到认证/网络问题时，代理**先自行探测并尝试可用通道**，能自动解决就自动解决；只有在所有通道都不可用、或需要用户做授权决定时，才向用户求助，并说明「已试过什么、各自报了什么错、缺什么、建议怎么修」。**不要把「认证失败」直接等同于「交给用户去执行」。**
+
+**标准动作**：`git fetch origin` → `git rebase origin/main` → `git push origin main` → `git ls-remote origin main` 核对远端 SHA 与本地 `git rev-parse HEAD` 一致。
+
+**通道探测（按序，先探测再决定；命令一律带 `GIT_TERMINAL_PROMPT=0` 与超时，避免阻塞等输入）**：
+
+1. 先记录现状：`git remote -v`，确认当前 remote 用的是哪种协议。
+2. 探测当前协议能否免交互认证：
+   - HTTPS：`printf "protocol=https\nhost=github.com\n\n" | git credential fill`，能返回用户名即视为可用（凭据由系统凭据管理器托管：Windows=Git Credential Manager、macOS=Keychain、Linux=libsecret）。
+   - 可用 → 直接推送。
+3. HTTPS 不可用 → 探测 SSH：`ssh -o ConnectTimeout=8 -T git@github.com`，返回 `Hi <user>!` 即可用。
+4. 仍不可用 → 探测 `gh auth status`（若装了 gh）、`GH_TOKEN` / `GITHUB_TOKEN` 环境变量。
+5. 选定通道后推送：
+   - **优先用一次性 URL**（如 `git push git@github.com:lizij/LocalAIProxy.git main`），不改动本地 remote 配置，副作用最小；
+   - 若用户或工程约定明确希望固化，再 `git remote set-url origin <url>`。
+6. 全部通道都用不通（例如需要人工输密码、钥匙串无凭据且本环境无法弹窗）→ **此时才向用户求助**，并给出确切的补救命令（如「请在本机终端执行 `git push` 登录一次，凭据会写入系统凭据管理器」）。
+
+**约束**：不得把令牌内嵌进 URL（见 9.4）；不得对 `main` 强推（`--force`）；探测命令必须带超时，禁止让命令阻塞等待输入；若推送被拒（如远端有新提交），先 `git fetch` 再 `git rebase origin/main`，**不要**用 `--force` 掩盖冲突。
