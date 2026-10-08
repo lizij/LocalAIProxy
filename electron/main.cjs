@@ -15,9 +15,21 @@ process.env.LOCAL_AI_PROXY_PUBLIC_DIR = app.isPackaged
   ? path.join(process.resourcesPath, 'public')
   : path.join(__dirname, '..', 'public');
 
-// 便携版：数据写在 exe 同级 data/ 目录（PORTABLE_EXECUTABLE_DIR 由 electron-builder 便携启动器注入）。
-if (app.isPackaged) {
-  const baseDir = process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(app.getPath('exe'));
+/**
+ * 打包后的数据目录（LOCAL_AI_PROXY_HOME）：
+ * - Windows 便携版：exe 同级 data/（PORTABLE_EXECUTABLE_DIR 由 electron-builder 便携启动器注入）。
+ * - macOS：PORTABLE_EXECUTABLE_DIR 不存在，若回退到 path.dirname(app.getPath('exe')) 会把数据写进
+ *   `LocalAIProxy.app/Contents/MacOS/data`——从 dmg 直接运行时该处为只读挂载（App Translocation），
+ *   配置与日志写不进去；拖入 /Applications 后覆盖安装/升级又会连数据一起丢。
+ *   因此 macOS 统一改用系统用户数据目录：~/Library/Application Support/LocalAIProxy/data。
+ * 必须在 ready 之后调用 app.getPath('userData')，故延迟到 bootstrap 内执行。
+ */
+function applyDataDir() {
+  if (!app.isPackaged) return; // 开发模式：后端默认使用 <cwd>/data
+  const baseDir =
+    process.platform === 'darwin'
+      ? app.getPath('userData')
+      : process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(app.getPath('exe'));
   process.env.LOCAL_AI_PROXY_HOME = path.join(baseDir, 'data');
 }
 
@@ -68,6 +80,7 @@ function createWindow(adminPort) {
 async function bootstrap() {
   await app.whenReady();
   app.setAppUserModelId('com.localaiproxy.app');
+  applyDataDir(); // 需在 ready 之后才能取 app.getPath('userData')
 
   try {
     const cfg = await startBackend();

@@ -354,10 +354,12 @@ Electron 主进程在启动服务前注入三个环境变量，使后端在打�
 
 | 环境变量 | 命令行模式默认 | 桌面模式（打包后） |
 | --- | --- | --- |
-| `LOCAL_AI_PROXY_HOME` | `./data` | 便携 exe 同级的 `data/`（`PORTABLE_EXECUTABLE_DIR/data`） |
+| `LOCAL_AI_PROXY_HOME` | `./data` | Windows：便携 exe 同级的 `data/`（`PORTABLE_EXECUTABLE_DIR/data`）；macOS：`~/Library/Application Support/LocalAIProxy/data`（`app.getPath('userData')/data`） |
 | `LOCAL_AI_PROXY_PUBLIC_DIR` | `<repo>/public` | `resources/public`（通过 `extraResources` 放在 asar 之外） |
 | `LOCAL_AI_PROXY_VERSION` | 读 `package.json` | `app.getVersion()`（打包后无 package.json 可读） |
 | `LOCAL_AI_PROXY_PROFILE` | 不设即 `user` 档 | 同左（环境变量天然继承；`test` 档会切到 `config-test.json` 与 `logs-test/`，窗口标题带 `[测试档]`） |
+
+> **macOS 数据目录为何不用「app 同级」**：`PORTABLE_EXECUTABLE_DIR` 是 electron-builder Windows 便携启动器专有变量，macOS 上不存在。若回退到 `path.dirname(app.getPath('exe'))`，数据会写进 `LocalAIProxy.app/Contents/MacOS/data`——从 dmg 直接运行时该路径是只读挂载（App Translocation），配置与日志根本写不进去；拖入 `/Applications` 后覆盖安装/升级又会连数据一起丢。因此 macOS 改为系统用户数据目录，Windows 便携版的「数据随 exe 走」行为保持不变。`app.getPath('userData')` 必须在 `ready` 之后调用，故该段逻辑放在 `bootstrap()` 内执行。
 
 ### 9.4 构建与打包（逐系统构建）
 
@@ -370,9 +372,10 @@ Electron 主进程在启动服务前注入三个环境变量，使后端在打�
 | `npm run dist:linux` | `releases/LocalAIProxy-<ver>-linux.AppImage` / `.deb` | Linux |
 
 - **按用户要求：仓库只提供构建脚本，不提交任何平台的二进制产物**；每个平台的产物需在对应系统上现场构建（跨平台交叉构建不可靠，macOS 尤其必须在 macOS 上构建）。
+- **构建脚本显式 `--publish never`**：electron-builder 一旦检测到 CI 环境变量（如 `CI=true`）就会「隐式发布」产物到 GitHub Releases，缺少 `GH_TOKEN` 时会以失败码结束整个构建——**产物其实已经生成**，但脚本返回失败，容易误判为构建失败。本项目只产出本地安装包，不自动发布，故由 `scripts/dist.mjs` 统一传入 `--publish never`。
 - **构建自动保护用户数据**：`dist:*` 实际执行的是 `scripts/dist.mjs`，它会在 electron-builder 清理 `releases/` **之前**把 `releases/data`（用户真实配置与日志）复制到**仓库之外**的临时目录，构建完成后自动恢复并逐文件校验，校验通过才删除临时备份。这样「重建 exe 会删掉用户数据」由代码兜住，不再依赖人工记忆。
 - Windows 采用 **portable** 目标：双击即用，不解压、不写注册表；数据写在 exe 同级 `data/` 目录，删除该目录即彻底清除。
-- 产物统一输出到 `releases/`（已加入 `.gitignore`）。
+- 产物统一输出到 `releases/`（已加入 `.gitignore`）。**构建成功后自动清理中间产物**（`mac-arm64/`、`win-unpacked/`、`linux-unpacked/` 等中间目录，以及 `.blockmap`、`latest-*.yml`、`builder-debug.yml` 等自动更新元数据），`releases/` 只保留最终安装包（dmg / exe / AppImage / deb）与用户运行数据（`releases/data/`）。
 - **国内网络提示**：Electron 本体与其打包工具（NSIS、winCodeSign 等）默认从 GitHub 下载，国内可能失败。构建前设置镜像即可：
   ```powershell
   $env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"

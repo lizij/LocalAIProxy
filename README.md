@@ -140,10 +140,11 @@ OPENAI_BASE_URL=http://<本机局域网IP>:8787/v1
 
 | 运行方式 | 数据目录 |
 | --- | --- |
-| 桌面端（便携版） | exe 同级的 `data/` 目录 |
+| 桌面端 · Windows 便携版 | exe 同级的 `data/` 目录 |
+| 桌面端 · macOS | `~/Library/Application Support/LocalAIProxy/data` |
 | 命令行模式 | 当前工作目录下的 `data/` |
 
-可用环境变量 `LOCAL_AI_PROXY_HOME` 覆盖——**刻意不使用系统用户目录**，保证三系统行为一致、整个目录可搬移。**数据目录里含上游密钥与请求日志，请勿提交到仓库。**
+可用环境变量 `LOCAL_AI_PROXY_HOME` 覆盖。命令行模式与 Windows 便携版都**刻意不使用系统用户目录**，以保证行为一致、整个目录可搬移；macOS 桌面端因 app 包内部不可写（dmg 直接运行时为只读挂载），改用系统标准用户数据目录（见上表）。**数据目录里含上游密钥与请求日志，请勿提交到仓库。**
 
 数据目录内按「配置档」隔离用户数据与开发测试数据：
 
@@ -189,7 +190,13 @@ $env:ELECTRON_BUILDER_BINARIES_MIRROR="https://npmmirror.com/mirrors/electron-bu
 npm run dist:win
 ```
 
-若 `npm install` 中断导致 `node_modules/electron/dist` 缺失，单独补跑：`node node_modules/electron/install.js`。
+若 `npm install` 中断导致 `node_modules/electron/dist` 缺失，单独补跑：`node node_modules/electron/install.js`
+
+**macOS 提示**：dmg 产物未签名、未公证，首次打开会被 Gatekeeper 拦截。请右键点按应用图标选择「打开」，或执行：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/LocalAIProxy.app
+```
 
 ---
 

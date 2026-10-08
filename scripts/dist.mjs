@@ -48,8 +48,30 @@ if (target === 'win') ebArgs.push('--win', '--x64');
 else if (target === 'mac') ebArgs.push('--mac');
 else if (target === 'linux') ebArgs.push('--linux');
 
-const ebBin = path.join(root, 'node_modules', '.bin', process.platform === 'win32' ? 'electron-builder.cmd' : 'electron-builder');
+// 显式禁止发布：electron-builder 检测到 CI 环境变量时会「隐式发布」到 GitHub Releases，
+// 因缺少 GH_TOKEN 而让整个构建以失败码退出（产物其实已生成）。本项目只出本地安装包，不自动发布。
+ebArgs.push('--publish', 'never');
 
+/** 清理构建中间产物与自动更新元数据，只保留最终安装包。排除 releases/data/（用户数据）。 */
+function cleanupArtifacts() {
+  const releasesDir = path.join(root, 'releases');
+  if (!fs.existsSync(releasesDir)) return;
+  const intermediateDirs = new Set(['mac-arm64', 'win-unpacked', 'linux-unpacked']);
+  const junkSuffixes = ['.blockmap'];
+  const junkNames = new Set(['builder-debug.yml', 'latest-mac.yml', 'latest-linux.yml', 'latest.yml']);
+  for (const entry of fs.readdirSync(releasesDir, { withFileTypes: true })) {
+    const p = path.join(releasesDir, entry.name);
+    if (entry.isDirectory() && intermediateDirs.has(entry.name)) {
+      fs.rmSync(p, { recursive: true, force: true });
+      console.log(`[dist] 已清理中间目录：${entry.name}`);
+    } else if (entry.isFile() && (junkSuffixes.some(s => entry.name.endsWith(s)) || junkNames.has(entry.name))) {
+      fs.rmSync(p);
+      console.log(`[dist] 已清理元数据文件：${entry.name}`);
+    }
+  }
+}
+
+const ebBin = path.join(root, 'node_modules', '.bin', process.platform === 'win32' ? 'electron-builder.cmd' : 'electron-builder');
 let backedUp = false;
 try {
   if (fs.existsSync(dataDir)) {
@@ -67,6 +89,9 @@ try {
     copyDir(backupDir, dataDir);
     console.log('[dist] 已把运行数据恢复到 releases/data');
   }
+
+  // 清理构建中间产物与自动更新元数据，只保留最终安装包（dmg/exe/AppImage/deb）
+  cleanupArtifacts();
 } catch (err) {
   console.error('[dist] 构建失败：', err.message);
   if (backedUp && !fs.existsSync(dataDir)) {
