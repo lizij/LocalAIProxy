@@ -46,9 +46,10 @@
             <input id="pvBaseUrl" placeholder="https://api.deepseek.com" />
           </div>
           <p class="hint">
-            填上游的 API 根，可含版本段：如 <code>https://api.deepseek.com</code>、火山方舟
-            <code>https://ark.cn-beijing.volces.com/api/v3</code>。当上游路径与客户端的 <code>/v1</code>
-            不同时，以此处填写的为准。
+            填上游的 <b>API 根</b>，需含各自的版本段：DeepSeek 用 <code>https://api.deepseek.com</code>（无版本段）、
+            OpenAI 用 <code>https://api.openai.com/v1</code>、火山方舟用
+            <code>https://ark.cn-beijing.volces.com/api/v3</code>。客户端工具固定请求 <code>/v1/...</code>，
+            代理会剥掉这层 <code>/v1</code> 再拼到此处填写的地址上，即 <b>路径完全以此处为准</b>。
           </p>
           <div class="row">
             <label>API Key</label>

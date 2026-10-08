@@ -47,11 +47,14 @@ function clientIp(req) {
 /**
  * 拼接上游完整 URL。
  *
- * `baseUrl` 视为「上游 API 根」，可自带路径与版本段（如火山方舟
- * `https://ark.cn-beijing.volces.com/api/v3`）。OpenAI 兼容客户端总是请求
- * `/v1/<resource>`，其中 `/v1` 是**客户端侧**的协议版本段；当 baseUrl 自带路径时
- * 以上游路径为准、剥掉客户端开头的 `/v1`，否则会拼出
- * `/api/v3/v1/chat/completions` 这类错误地址（上游直接 404）。
+ * `baseUrl` 是**上游 API 根**，它完全决定最终路径——可以自带版本段
+ * （OpenAI `https://api.openai.com/v1`、火山方舟 `https://ark.cn-beijing.volces.com/api/v3`），
+ * 也可以不带（DeepSeek 官方即 `https://api.deepseek.com`，路径为 `/chat/completions`）。
+ *
+ * OpenAI 兼容客户端总是按 `/v1/<resource>` 请求，这个 `/v1` 属于**客户端侧**的版本段、
+ * 与上游无关，因此一律剥掉，只把资源部分（如 `/chat/completions`）接到 baseUrl 之后：
+ * - 若保留它，火山方舟会被拼成 `…/api/v3/v1/chat/completions` 而 404；
+ * - 剥掉后，DeepSeek 走的正是官方推荐的 `https://api.deepseek.com/chat/completions`。
  */
 export function buildUpstreamUrl(baseUrl, originalUrl) {
   const base = new URL(baseUrl);
@@ -60,15 +63,9 @@ export function buildUpstreamUrl(baseUrl, originalUrl) {
   const pathOnly = qi === -1 ? originalUrl : originalUrl.slice(0, qi);
   const query = qi === -1 ? '' : originalUrl.slice(qi + 1);
 
-  let tail = pathOnly;
-  if (basePath && (pathOnly === basePath || pathOnly.startsWith(basePath + '/'))) {
-    // 客户端路径已含 basePath（如 base=/v1、请求=/v1/chat/completions）：去掉重复段
-    tail = pathOnly.slice(basePath.length);
-  } else if (basePath) {
-    // baseUrl 自带路径：用上游路径取代客户端固定的 /v1 版本段
-    tail = pathOnly.replace(/^\/v1(?=\/|$)/, '');
-  }
-  let full = base.origin + basePath + tail;
+  // 剥掉客户端侧的版本段 /v1，其余资源路径原样接到上游 API 根之后
+  const resource = pathOnly.replace(/^\/v1(?=\/|$)/, '');
+  let full = base.origin + basePath + resource;
   if (query) full += '?' + query;
   return full;
 }

@@ -136,11 +136,15 @@ LocalAIProxy/
 
 **通用透传**：代理端口接收 `/v1/*` 的所有方法（GET/POST），把方法、路径、查询串、请求体、请求头转发到上游。
 
-- **URL 拼接**：`activeProvider.baseUrl` 视为「上游 API 根」，可自带路径与版本段。OpenAI 兼容客户端总是请求 `/v1/<resource>`，其中 `/v1` 是**客户端侧**的协议版本段，因此：
-  - baseUrl **无路径**（如 `https://api.deepseek.com`）→ 原样拼接：`https://api.deepseek.com/v1/chat/completions`；
-  - baseUrl **已含该段**（如 `https://api.deepseek.com/v1`、relay 的 `https://.../v1`）→ 去掉客户端路径里重复的段；
-  - baseUrl **自带不同版本段**（如火山方舟 `https://ark.cn-beijing.volces.com/api/v3`）→ **以 baseUrl 的路径为准**，剥掉客户端开头的 `/v1`，得到 `/api/v3/chat/completions`。
-  > 曾因缺少第 3 条而把火山方舟拼成 `/api/v3/v1/chat/completions` 导致 404。另需处理 baseUrl 末尾是否带 `/`。
+- **URL 拼接（路径完全由 baseUrl 决定）**：`activeProvider.baseUrl` 是「上游 API 根」，需填到各自的版本段为止；客户端请求里的 `/v1` 属于**客户端侧**版本段、与上游无关，**一律剥掉**，只把资源部分接到 baseUrl 之后。
+
+  | baseUrl | 客户端请求 | 实际转发 |
+  | --- | --- | --- |
+  | `https://api.deepseek.com`（DeepSeek 官方即无版本段） | `/v1/chat/completions` | `https://api.deepseek.com/chat/completions` |
+  | `https://api.openai.com/v1` | `/v1/chat/completions` | `https://api.openai.com/v1/chat/completions` |
+  | `https://ark.cn-beijing.volces.com/api/v3`（火山方舟） | `/v1/chat/completions` | `https://ark.cn-beijing.volces.com/api/v3/chat/completions` |
+
+  > 规则演进（踩坑记录）：① 最初只在「客户端路径已含 basePath」时去重 → 火山方舟被拼成 `/api/v3/v1/chat/completions` 而 404；② 改为「baseUrl 含路径时剥 `/v1`」→ 仍然在 baseUrl 无路径时保留 `/v1`，与 DeepSeek 官方推荐的 `https://api.deepseek.com/chat/completions` 不一致（官方文档全程不用 `/v1`）；③ 最终统一为**无条件剥掉客户端 `/v1`**，规则唯一、可预测。代价：baseUrl 必须填到含版本段的 API 根（OpenAI 不能省 `/v1`，DeepSeek 则不带）。另需处理 baseUrl 末尾是否带 `/`。
 - **多 Provider 与启用切换**：配置里维护一个 Provider 列表（`providers[]`）与一个启用指针（`activeProviderId`）。转发时始终取**当前启用的那个** Provider（指针失效则回落到列表首项）；每条请求都实时读配置，因此网页上切换 Provider **即时生效、无需重启**。
 - **请求头处理**：
   - 覆盖 `Authorization: Bearer <当前启用 Provider 的 APIKey>`（客户端带来的本地 Key **不转发**给上游）；
