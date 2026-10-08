@@ -26,6 +26,10 @@ process.env.LOCAL_AI_PROXY_PUBLIC_DIR = app.isPackaged
  */
 function applyDataDir() {
   if (!app.isPackaged) return; // 开发模式：后端默认使用 <cwd>/data
+  // 注意（Linux 未验证）：Windows 便携版靠 PORTABLE_EXECUTABLE_DIR 得到 exe 同级目录，行为正确；
+  // 但 Linux（AppImage/deb）没有该变量，会回退到 path.dirname(app.getPath('exe'))——
+  // AppImage 的 exe 位于只读临时挂载（/tmp/.mount_*/）、deb 安装到系统目录，data 可能写不进去或重启即丢。
+  // Linux 桌面端数据目录落点尚未实测，结论出来前不要照搬此处行为（见 docs/DESIGN.md §9.3 与 §12 待确认）。
   const baseDir =
     process.platform === 'darwin'
       ? app.getPath('userData')

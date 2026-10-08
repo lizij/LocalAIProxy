@@ -18,7 +18,7 @@ LocalAIProxy 把这三件事一次解决：**统一入口 + 原样透传 + 全�
 
 | 能力 | 说明 |
 | --- | --- |
-| OpenAI 兼容入口 | 提供 `/v1/*`，`model` 原样透传，URL 自动避免 `/v1/v1` 重复 |
+| OpenAI 兼容入口 | 提供 `/v1/*`，`model` 原样透传；URL 完全由 Base URL 决定——先剥掉客户端侧的 `/v1` 再拼接 |
 | 流式转发 | 完整支持 SSE，逐块实时转发，不做缓冲 |
 | 省 Token | 客户端断开连接时立即中止上游请求 |
 | 访问控制 | 客户端需携带本地 API Key（常量时间比较）；日志中的密钥一律打码 |
@@ -80,7 +80,7 @@ npm start
 
    | 测试路径 | 含义 | 用途 |
    | --- | --- | --- |
-   | **直连上游** | 绕过本地代理，直接打上游的 `/v1/chat/completions` | 只验证 Provider 的 Base URL / API Key / Model 是否正确 |
+   | **直连上游** | 绕过本地代理，按同一套 URL 拼接规则直接请求上游的 chat/completions | 只验证 Provider 的 Base URL / API Key / Model 是否正确 |
    | **经本地代理** | 打本机 `http://127.0.0.1:8787/v1/chat/completions` 并带本地 Key | 验证端到端链路：**本地 Key 鉴权 → 转发 → 日志落库** |
 
    测试结果上方会标明**实际走的是哪条路径**（`✓ 直连上游 · …` / `✓ 经本地代理 · …`）。不确定用哪个时：先「直连上游」确认 Provider 没问题，再「经本地代理」确认真实客户端调用也能通。
@@ -134,9 +134,9 @@ OPENAI_BASE_URL=http://<本机局域网IP>:8787/v1
 | `proxy.connectTimeoutMs` | 15000 | 连接上游超时 |
 | `proxy.requestTimeoutMs` | 300000 | 上游空闲超时 |
 | `admin.host` / `admin.port` | `127.0.0.1` / `8788` | 管理页监听地址 |
-| `admin.password` | 空 | 管理口令；`admin.host` 非本机时必填 |
+| `admin.password` | 空 | 管理口令；`admin.host` 非本机时必填（未填时启动会自动生成临时口令并打印到控制台，仍需尽快设置固定口令） |
 | `providers[]` | 空 | 上游 Provider 列表，每项含 `id`/`name`/`baseUrl`/`apiKey`/`model`/`insecureTLS`；网页上可新增/编辑/删除 |
-| `providers[].model` | 空 | 该 Provider 的兜底模型（仅当请求未携带 `model` 时使用） |
+| `providers[].model` | 空 | 该 Provider 的兜底模型，**仅用于网页「保存并测试」**与示例展示；转发时 `model` 原样透传，**不做补全**（客户端漏传 `model` 的报错不会被代理掩盖） |
 | `providers[].insecureTLS` | `false` | 跳过该上游的证书校验（仅自签证书场景） |
 | `activeProviderId` | 空 | 当前启用的 Provider `id`；转发时使用它，找不到则回落到列表首项 |
 | `log.memorySize` | 1000 | 内存中保留的日志条数（网页滚动窗口） |
@@ -150,6 +150,7 @@ OPENAI_BASE_URL=http://<本机局域网IP>:8787/v1
 | --- | --- |
 | 桌面端 · Windows 便携版 | exe 同级的 `data/` 目录 |
 | 桌面端 · macOS | `~/Library/Application Support/LocalAIProxy/data` |
+| 桌面端 · Linux | **尚未验证**（现实现回退到 exe 同级目录，AppImage/deb 下可能只读或不可写，落点待实测） |
 | 命令行模式 | 当前工作目录下的 `data/` |
 
 可用环境变量 `LOCAL_AI_PROXY_HOME` 覆盖。命令行模式与 Windows 便携版都**刻意不使用系统用户目录**，以保证行为一致、整个目录可搬移；macOS 桌面端因 app 包内部不可写（dmg 直接运行时为只读挂载），改用系统标准用户数据目录（见上表）。**数据目录里含上游密钥与请求日志，请勿提交到仓库。**

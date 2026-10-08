@@ -19,7 +19,7 @@
 | 编号 | 需求 | 结论 |
 | --- | --- | --- |
 | 1 | 本地 Provider 服务，有独立 BaseURL/APIKey，支持局域网连接 | 监听 `0.0.0.0`，客户端用本地 Key 鉴权 |
-| 2 | 转发到任意公开 Provider（用户填 baseurl/apikey/model） | **单 Provider + model 透传**（客户端传什么 model 就透传什么） |
+| 2 | 转发到任意公开 Provider（用户填 baseurl/apikey/model） | **多 Provider 可切换 + model 原样透传**（客户端传什么 model 就透传什么，代理不做补全；2026-10-08 由单 Provider 升级为多 Provider，见 §12 #11） |
 | 3 | 网页滚动展示最近 1000 条请求原文 | 记录**请求原文 + 响应原文**；内存滚动窗口 1000 条 |
 | 4 | 跨 Windows / Linux / macOS | 纯 Node.js + 仅内置模块，零原生依赖 |
 | 5 | 技术不限，优先兼容性与部署便利，建议 Node.js | **Node.js >= 20（推荐 20 LTS / 22），零第三方依赖** |
@@ -98,7 +98,9 @@ LocalAIProxy/
 ├─ electron/
 │  └─ main.cjs                # Electron 主进程：启动服务 + 创建窗口 + 生命周期
 ├─ scripts/
-│  └─ build-backend.mjs       # esbuild 把 src/app.js 打包成 dist/backend.cjs
+│  ├─ build-backend.mjs       # esbuild 把 src/app.js 打包成 dist/backend.cjs
+│  ├─ start-test.mjs          # 以测试档启动命令行模式（config-test.json / logs-test）
+│  └─ dist.mjs                # 打包包装：构建前后自动备份/恢复 releases/data
 ├─ src/
 │  ├─ index.js                # 命令行入口（无 GUI）
 │  ├─ app.js                  # 应用装配：createApp()，命令行与桌面共用
@@ -134,7 +136,7 @@ LocalAIProxy/
 
 ### 6.1 代理转发模块（核心）
 
-**通用透传**：代理端口接收 `/v1/*` 的所有方法（GET/POST），把方法、路径、查询串、请求体、请求头转发到上游。
+**通用透传**：代理端口接收 `/v1/*` 的请求（**不对方法做限制**，GET/POST/PUT/PATCH/DELETE 均透传，CORS 也放开这些方法），把方法、路径、查询串、请求体、请求头转发到上游。
 
 - **URL 拼接（路径完全由 baseUrl 决定）**：`activeProvider.baseUrl` 是「上游 API 根」，需填到各自的版本段为止；客户端请求里的 `/v1` 属于**客户端侧**版本段、与上游无关，**一律剥掉**，只把资源部分接到 baseUrl 之后。
 
@@ -150,7 +152,7 @@ LocalAIProxy/
   - 覆盖 `Authorization: Bearer <当前启用 Provider 的 APIKey>`（客户端带来的本地 Key **不转发**给上游）；
   - 透传 `Content-Type`、`Accept`、`User-Agent` 等业务头；
   - 剥离 `Host`（由 fetch 依目标 URL 自动生成）、`Content-Length`（由 fetch 重新计算）、`Connection`、`Transfer-Encoding` 等逐跳头。
-- **model 透传**：请求体中的 `model` 原样保留，不替换。Provider 的 `model` 仅作**兜底**：当请求体未提供 `model` 时补上，并用于网页示例展示。
+- **model 透传（原样转发，不做补全）**：请求体中的 `model` 原样保留，**代理不会在缺失时补上 Provider 的 `model`**——保持「原样转发」语义，客户端自身的 model 缺失问题不应被代理掩盖。Provider 的 `model` 仅用于**网页「保存并测试」的兜底**与示例展示（见 `src/admin/test.js`）。
 - **流式（SSE）透传**：
   1. 判断上游响应 `Content-Type` 是否 `text/event-stream`；
   2. 设定响应头 `Content-Type: text/event-stream`、`Cache-Control: no-cache, no-transform`、`Connection: keep-alive`、`X-Accel-Buffering: no`；
@@ -165,7 +167,7 @@ LocalAIProxy/
 
 - **客户端鉴权**（代理端口）：读取 `Authorization: Bearer <key>`（兼容 `api-key` 头），与配置中的本地 Key 比对；不匹配返回 `401` + OpenAI 风格错误体。
 - 本地 Key 支持网页生成/重置。
-- **管理鉴权**（管理端口）：默认仅本机可访问；若对外暴露（`admin.host` 改为 `0.0.0.0`），则要求口令登录（见第 7 节 `/api/admin/login`，登录后以 Cookie/Token 保持会话）。
+- **管理鉴权**（管理端口）：默认仅本机可访问；若对外暴露（`admin.host` 改为 `0.0.0.0`），则要求口令登录（见第 7 节 `/api/admin/login`，登录后以 Cookie/Token 保持会话）。**兜底**：对外暴露却没设 `admin.password` 时，启动会自动生成一个临时口令并打印到控制台（避免管理页裸奔），用户仍应尽快在配置里设置固定口令。
 
 ### 6.3 日志模块（内存优先 + 异步落盘）
 
@@ -201,7 +203,7 @@ LocalAIProxy/
   "client": { "ip": "192.168.1.20", "ua": "python-requests/2.31" },
   "request": {
     "method": "POST",
-    "url": "https://api.deepseek.com/v1/chat/completions",
+    "url": "https://api.deepseek.com/chat/completions", // 已按 6.1 规则剥掉客户端侧 /v1
     "headers": { "content-type": "application/json", "authorization": "Bearer ***" },
     "body": { "model": "deepseek-chat", "messages": [/* ...原文... */], "stream": true }
   },
@@ -212,7 +214,7 @@ LocalAIProxy/
     "stream": true,
     "usage": { "prompt_tokens": 12, "completion_tokens": 88 }  // 若能解析则附带
   },
-  "error": null                       // 出错时填 { message, code }
+  "error": null                       // 出错时填 { name, message }
 }
 ```
 
@@ -221,7 +223,7 @@ LocalAIProxy/
 ### 6.4 实时推送（管理端）
 
 - `GET /api/admin/logs/stream?since=<seq>`：SSE 长连接，新日志产生即推送（含 `seq`）；支持带 `since` 补偿断线期间的记录。同一条记录会先后推送两次（`pending` 与 `done`/`error`），前端按 `id` 合并更新。
-- 前端默认展示最近 1000 条（内存窗口），自动滚动；可暂停、搜索、按状态码/耗时过滤。
+- 前端默认展示最近 1000 条（内存窗口），自动滚动；可暂停、搜索、按状态（进行中 / 成功 / 失败）过滤。
 
 ### 6.5 Web 管理界面
 
@@ -334,7 +336,7 @@ LocalAIProxy/
 ## 8. 关键实现要点与边界情况
 
 1. **SSE 不被缓冲**：客户端侧响应加 `no-transform` / `X-Accel-Buffering: no`；服务端逐块 flush。
-2. **断开即中止上游**：`req.on('close')` → `AbortController.abort()`，省 token。
+2. **断开即中止上游**：监听 `res.on('close')`（响应侧 close，语义比 `req` 更准）→ `AbortController.abort()`，省 token。
 3. **大请求体保护**：设置最大请求体大小（如 32MB），超限拒绝并记录。
 4. **日志内存上限**：单条日志过大时（如超长上下文）截断并标记 `truncated: true`，防止内存膨胀。
 5. **背压**：写文件流的 `write()` 返回 `false` 时**不阻塞**转发——忽略返回值、交给流内部缓冲（内存 Ring Buffer 才是权威副本，文件允许滞后）。
@@ -373,12 +375,14 @@ Electron 主进程在启动服务前注入三个环境变量，使后端在打�
 
 | 环境变量 | 命令行模式默认 | 桌面模式（打包后） |
 | --- | --- | --- |
-| `LOCAL_AI_PROXY_HOME` | `./data` | Windows：便携 exe 同级的 `data/`（`PORTABLE_EXECUTABLE_DIR/data`）；macOS：`~/Library/Application Support/LocalAIProxy/data`（`app.getPath('userData')/data`） |
+| `LOCAL_AI_PROXY_HOME` | `./data` | Windows：便携 exe 同级的 `data/`（`PORTABLE_EXECUTABLE_DIR/data`）；macOS：`~/Library/Application Support/LocalAIProxy/data`（`app.getPath('userData')/data`）；**Linux：尚未验证**（现实现回退到 exe 同级目录，但 AppImage 的 exe 位于只读临时挂载、deb 安装到系统目录，`data` 可能写不进去——落点待 Linux 上实测后再定，见 §12 待确认） |
 | `LOCAL_AI_PROXY_PUBLIC_DIR` | `<repo>/public` | `resources/public`（通过 `extraResources` 放在 asar 之外） |
 | `LOCAL_AI_PROXY_VERSION` | 读 `package.json` | `app.getVersion()`（打包后无 package.json 可读） |
 | `LOCAL_AI_PROXY_PROFILE` | 不设即 `user` 档 | 同左（环境变量天然继承；`test` 档会切到 `config-test.json` 与 `logs-test/`，窗口标题带 `[测试档]`） |
 
 > **macOS 数据目录为何不用「app 同级」**：`PORTABLE_EXECUTABLE_DIR` 是 electron-builder Windows 便携启动器专有变量，macOS 上不存在。若回退到 `path.dirname(app.getPath('exe'))`，数据会写进 `LocalAIProxy.app/Contents/MacOS/data`——从 dmg 直接运行时该路径是只读挂载（App Translocation），配置与日志根本写不进去；拖入 `/Applications` 后覆盖安装/升级又会连数据一起丢。因此 macOS 改为系统用户数据目录，Windows 便携版的「数据随 exe 走」行为保持不变。`app.getPath('userData')` 必须在 `ready` 之后调用，故该段逻辑放在 `bootstrap()` 内执行。
+>
+> **Linux 为什么标注「未验证」**：同一段回退逻辑对 Linux 会取 `path.dirname(app.getPath('exe'))`。AppImage 运行时的 exe 位于 `/tmp/.mount_*/`（只读 squashfs 挂载，重启即失效）、deb 安装到系统目录（普通用户不可写），二者都可能让 `data/` 写不进去或随重启丢失。该路径**尚未在任何 Linux 发行版上实测**，故此处先如实标注、`electron/main.cjs` 也加了同款注释，**不要照搬现状**，待实测确认后再决定是否把 Linux 也改为 `app.getPath('userData')`。
 
 ### 9.4 构建与打包（逐系统构建）
 
@@ -459,7 +463,7 @@ Electron 主进程在启动服务前注入三个环境变量，使后端在打�
 
 **待确认**
 
-- 暂无。
+- **Linux 桌面端数据目录落点**：`electron/main.cjs` 目前对非 macOS 回退到 `path.dirname(app.getPath('exe'))`。Windows 便携版（有 `PORTABLE_EXECUTABLE_DIR`）正确；**Linux（AppImage / deb）尚未验证**——可能落在只读临时挂载或不可写的系统目录。待在某 Linux 发行版上构建后实测 `app.getPath('exe')` 的实际落点，再决定是否把 Linux 也改为 `app.getPath('userData')`（本次不改变行为，仅记录待办）。
 
 ---
 

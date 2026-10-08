@@ -9,7 +9,7 @@
 LocalAIProxy：一个 **OpenAI 协议兼容的本地 AI 转发代理**。
 
 - 对外暴露一个本地 BaseURL + APIKey（代理端口，默认 `0.0.0.0:8787`）；
-- 把请求**原样透传**到用户配置的任意公开 Provider（单 Provider + model 透传）；
+- 把请求**原样透传**到用户配置的任意公开 Provider（多 Provider 可一键切换 + `model` 原样透传，代理不做补全）；
 - 提供网页控制台（管理端口，默认 `127.0.0.1:8788`）实时查看**发往 Provider 的请求原文与收到的响应原文**；
 - 通过 **Electron** 封装成桌面应用：一个窗口 + 内嵌 Chromium，窗口即服务，关窗即退出，无后台残留。
 
@@ -31,6 +31,8 @@ LocalAIProxy：一个 **OpenAI 协议兼容的本地 AI 转发代理**。
 | 打包 Linux AppImage + deb | `npm run dist:linux` |
 
 **打包必须在目标系统上进行**：Windows 产物在 Windows 上构建、macOS 产物在 macOS 上构建、Linux 产物在 Linux 上构建。仓库不提交任何平台的二进制产物。产物统一输出到 `releases/`。
+
+> **Linux 桌面端尚未验证**：目前只在 macOS 上构建过。Linux（AppImage/deb）的数据目录落点未实测，可能落在只读或不可写的路径（详见 `docs/DESIGN.md` §9.3 与 §12 待确认）。首次在 Linux 上构建/运行后，请先确认 `data/` 能正常读写再对外宣称支持。
 
 **国内网络**：Electron 及其打包工具默认从 GitHub 下载，构建前先设镜像（否则会卡在下载或直接失败）：
 
