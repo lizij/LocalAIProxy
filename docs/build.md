@@ -83,3 +83,27 @@ npm run dist:win
   ```
 
 - **Linux（尚未验证）**：本项目目前只在 macOS 上构建 / 运行过。Linux（AppImage / deb）的**数据目录落点未实测**，可能落在只读或不可写的路径（见 [docs/design.md](design.md) §9.3 与 §12 待确认）。首次在 Linux 上构建 / 运行后，请先确认 `data/` 能正常读写，再对外宣称支持。
+
+---
+
+## 8. 发布到 GitHub Release（CI）
+
+仓库内置 `.github/workflows/release.yml`：**推一个 `v*` tag**，即在 GitHub 的免费 runner 上三平台各自**原生构建**，并把产物挂到**同一个草稿 Release**（人工审阅后手动 Publish）。
+
+这样解决了「本机只有 Windows/Mac、产不出 Linux 产物」的问题，且**不需要任何 secrets**（产物未签名，用 Actions 自带的 `GITHUB_TOKEN`）。
+
+**发版流程**：
+
+```bash
+# 1) 按 docs/contributing.md §1 递增 package.json 版本，提交并推送
+# 2) 打 tag 并推送（tag 名须与版本号一致，如 v0.6.3）
+git tag v0.6.3 && git push origin v0.6.3
+# 3) 等 Actions 跑完 → GitHub「Releases」出现草稿 → 审阅 → Publish release
+```
+
+- **干跑**（不建 Release）：在 Actions 页面选 workflow「Release」→「Run workflow」，产物会作为 Actions artifact 供下载。
+- **mac 产物是 arm64**：`macos-latest` 现为 Apple Silicon；要 Intel 版把 `macos-latest` 换成 `macos-15-intel`。
+- **产物未签名**：mac 会被 Gatekeeper 拦、Windows 会 SmartScreen 提示——请在 Release 说明里写一句（mac 的处理见 §7）。
+- workflow 复用 `npm run dist:mac / dist:win / dist:linux`（内含 `build:backend` 与产物清理），未绕过 `scripts/dist.mjs`。
+
+> **与 electron-builder 自带发布的区别**：本项目 `dist.mjs` 固定 `--publish never`，并会清理 `latest-*.yml` / `.blockmap`（自动更新元数据），所以发布交给 workflow 里的 action 完成，二者互不冲突。将来若要接 `electron-updater` 自动更新，再改为保留这些元数据并启用 electron-builder 的 publish。

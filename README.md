@@ -179,6 +179,8 @@ npm run dist:mac     # 或：npm run dist:win / npm run dist:linux（必须在�
 
 产物输出到 `releases/`。**完整的构建说明**——逐系统命令与产物命名、国内镜像、用户数据保护（`scripts/dist.mjs`）、产物内含新代码的校验、各平台限制（含 macOS Gatekeeper 提示与 Linux 未验证）——见 [docs/build.md](docs/build.md)。
 
+> **发布到 GitHub Release**：推一个 `v*` tag 即触发 GitHub Actions 在三个系统上**各自原生构建**，并把产物挂到同一个草稿 Release（审阅后手动 Publish）——因此**本地不需要同时具备三个系统**。见 [docs/build.md](docs/build.md) §8。
+
 ---
 
 ## 项目结构

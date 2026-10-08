@@ -1,0 +1,72 @@
+# 发布：推 v* tag 时，在 GitHub 免费 runner 上三平台各自原生构建，
+# 再把产物挂到同一个「草稿」Release（人工审阅后手动 Publish）。
+#
+# 为什么这么做：本机只有 Windows/Mac，Linux 产物（AppImage/deb）无法本地产出；
+# 交给 CI 的三平台 runner 原生构建，可绕开跨平台编译限制。
+#
+# 特点：
+# - 不需要任何 secrets（产物未签名，使用 Actions 自带的 GITHUB_TOKEN）。
+# - 复用项目既有脚本 npm run dist:mac / dist:win / dist:linux
+#   （内部已含 build:backend 与产物清理，未绕过 scripts/dist.mjs）。
+# - macos-latest 现为 Apple Silicon（arm64），故 mac 产物是 arm64 的 dmg；
+#   若要 Intel 版，把 macos-latest 换成 macos-15-intel。
+# - 想先「干跑」（不建 Release）：在 Actions 页面手动 Run workflow，
+#   产物会作为 Actions artifact 供下载。
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch: # 手动触发＝干跑：只构建并上传 Actions artifact，不建 Release
+
+permissions:
+  contents: write # 创建 Release 需要写权限
+
+jobs:
+  build:
+    name: 构建（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, script: dist:mac }
+          - { os: windows-latest, script: dist:win }
+          - { os: ubuntu-latest, script: dist:linux }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 打包
+        run: npm run ${{ matrix.script }}
+      - name: 上传产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            releases/*.dmg
+            releases/*.exe
+            releases/*.AppImage
+            releases/*.deb
+
+  publish:
+    name: 发布 Release（草稿）
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      # 汇总三平台产物到同一目录，再一次性发布（避免多个 job 并发创建同一个 Release）
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v3
+        with:
+          draft: true
+          generate_release_notes: true
+          files: dist/*

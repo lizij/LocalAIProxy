@@ -95,6 +95,9 @@ LocalAIProxy/
 ├─ README.md                  # 项目说明（面向使用者：产品、快速开始、使用、配置）
 ├─ LICENSE                    # Apache-2.0
 ├─ .gitignore
+├─ .github/
+│  └─ workflows/
+│     └─ release.yml          # 推 v* tag 时三平台构建并发布到 GitHub Release（草稿）
 ├─ docs/
 │  ├─ design.md               # 本文件：设计与方案
 │  ├─ test.md                 # 测试与发布（含换版标准顺序）
