@@ -1,4 +1,4 @@
-import { maskSecret } from '../config.js';
+import { maskSecret, activeProvider } from '../config.js';
 import { buildUpstreamUrl, extractUsage } from '../proxy/forward.js';
 import { json, readJson } from './http.js';
 
@@ -19,8 +19,9 @@ const TEST_TIMEOUT_MS = 60000;
  */
 export async function handleTest(req, res, ctx) {
   const cfg = ctx.config.get();
-  if (!cfg.upstream.baseUrl) {
-    return json(res, 400, { ok: false, error: '上游 Provider 未配置：请先填写 Base URL 与 API Key 并保存。' });
+  const provider = activeProvider(cfg);
+  if (!provider || !provider.baseUrl) {
+    return json(res, 400, { ok: false, error: '上游 Provider 未配置：请先添加一个 Provider 并填写 Base URL 与 API Key。' });
   }
 
   let body;
@@ -34,10 +35,10 @@ export async function handleTest(req, res, ctx) {
   const useProxy = via === 'proxy';
 
   const prompt = (body.prompt && String(body.prompt).trim()) || DEFAULT_PROMPT;
-  const model = (body.model && String(body.model).trim()) || cfg.upstream.model || '';
+  const model = (body.model && String(body.model).trim()) || provider.model || '';
   const stream = !!body.stream;
   if (!model) {
-    return json(res, 400, { ok: false, error: '未指定 model：请在「Model（兜底）」字段填写，或填写测试用模型。' });
+    return json(res, 400, { ok: false, error: '未指定 model：请在该 Provider 的「Model（兜底）」字段填写，或填写测试用模型。' });
   }
 
   const headers = { 'content-type': 'application/json' };
@@ -46,8 +47,8 @@ export async function handleTest(req, res, ctx) {
     url = `http://127.0.0.1:${cfg.proxy.port}/v1/chat/completions`;
     headers.authorization = `Bearer ${cfg.proxy.apiKey}`;
   } else {
-    url = buildUpstreamUrl(cfg.upstream.baseUrl, '/v1/chat/completions');
-    if (cfg.upstream.apiKey) headers.authorization = `Bearer ${cfg.upstream.apiKey}`;
+    url = buildUpstreamUrl(provider.baseUrl, '/v1/chat/completions');
+    if (provider.apiKey) headers.authorization = `Bearer ${provider.apiKey}`;
   }
   const payload = { model, messages: [{ role: 'user', content: prompt }], stream };
 
@@ -59,7 +60,7 @@ export async function handleTest(req, res, ctx) {
         request: {
           method: 'POST',
           url,
-          headers: { 'content-type': 'application/json', authorization: 'Bearer ' + maskSecret(cfg.upstream.apiKey) },
+          headers: { 'content-type': 'application/json', authorization: 'Bearer ' + maskSecret(provider.apiKey) },
           body: payload,
         },
       });

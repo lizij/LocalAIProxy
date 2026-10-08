@@ -13,6 +13,9 @@ const state = {
   connecting: false,
   lastFile: null,
   lastFileOffset: 0,
+  providers: [],
+  activeProviderId: '',
+  editingProviderId: null, // null 表示编辑器未打开；'' 表示新增
 };
 
 function setStatus(ok, text) {
@@ -45,6 +48,36 @@ function showLogin(msg) {
 function hideLogin() {
   $('loginCard').hidden = true;
   $('loginHint').textContent = '';
+}
+
+/* ---------- Tab 切换 ---------- */
+
+const TAB_KEY = 'lap.tab';
+
+function switchTab(name) {
+  document.querySelectorAll('.tabs .tab-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.tab === name);
+  });
+  // 只切换 main 的直接子面板；tab 按钮自身也带 data-tab，若用 [data-tab] 会把按钮一起隐藏。
+  document.querySelectorAll('main > [data-tab]').forEach((sec) => {
+    sec.hidden = sec.dataset.tab !== name;
+  });
+}
+
+function initTabs() {
+  document.querySelectorAll('.tabs .tab-btn').forEach((b) => {
+    b.onclick = () => {
+      switchTab(b.dataset.tab);
+      localStorage.setItem(TAB_KEY, b.dataset.tab);
+    };
+  });
+}
+
+/** 首页判定：未配置任何 Provider → 上游 Provider tab；已配置 → 请求日志 tab；否则用上次选择。 */
+function applyDefaultTab() {
+  const configured = state.providers.some((p) => p.id === state.activeProviderId && p.baseUrl);
+  const remembered = localStorage.getItem(TAB_KEY);
+  switchTab(remembered || (configured ? 'logs' : 'provider'));
 }
 
 /* ---------- 记录渲染 ---------- */
@@ -542,31 +575,119 @@ async function loadConfig() {
   $('version').textContent = `LocalAIProxy v${st.version || '0.0.0'}${st.profile === 'test' ? ' · 测试档' : ''}`;
   $('apiKeyOut').value = config.proxy.apiKey;
   $('requireClientKey').checked = !!config.proxy.requireClientKey;
-  $('upBaseUrl').value = config.upstream.baseUrl || '';
-  $('upApiKey').value = config.upstream.apiKey || '';
-  $('upModel').value = config.upstream.model || '';
-  $('upInsecure').checked = !!config.upstream.insecureTLS;
+  state.providers = Array.isArray(config.providers) ? config.providers : [];
+  state.activeProviderId = config.activeProviderId || '';
+  renderProviders();
   hideLogin();
   setStatus(true, '已连接');
   connect();
+  applyDefaultTab();
 }
 
-async function saveConfig() {
-  const upstream = {
-    baseUrl: $('upBaseUrl').value.trim(),
-    model: $('upModel').value.trim(),
-    insecureTLS: $('upInsecure').checked,
-  };
-  const key = $('upApiKey').value.trim();
-  if (key && !key.includes('*')) upstream.apiKey = key;
+/* ---------- 上游 Provider 列表 ---------- */
 
+function renderProviders() {
+  const box = $('providerList');
+  box.innerHTML = '';
+  if (!state.providers.length) {
+    const empty = document.createElement('div');
+    empty.className = 'hint';
+    empty.textContent = '还没有配置任何上游 Provider，请点击下方「新增 Provider」开始配置。';
+    box.append(empty);
+    return;
+  }
+  for (const p of state.providers) {
+    const active = p.id === state.activeProviderId;
+    const item = document.createElement('div');
+    item.className = 'provider-item' + (active ? ' active' : '');
+
+    const name = document.createElement('span');
+    name.className = 'pv-name';
+    name.textContent = p.name || p.baseUrl || '(未命名)';
+
+    const url = document.createElement('span');
+    url.className = 'pv-url';
+    url.textContent = p.baseUrl || '（未填写 Base URL）';
+
+    const tag = document.createElement('span');
+    tag.className = 'pv-tag';
+    tag.textContent = active ? '使用中' : '点击切换';
+
+    const actions = document.createElement('span');
+    actions.className = 'pv-actions';
+    const edit = document.createElement('button');
+    edit.textContent = '编辑';
+    edit.onclick = (e) => {
+      e.stopPropagation();
+      openEditor(p);
+    };
+    const del = document.createElement('button');
+    del.textContent = '删除';
+    del.onclick = (e) => {
+      e.stopPropagation();
+      deleteProvider(p).catch((err) => alert('删除失败: ' + err.message));
+    };
+    actions.append(edit, del);
+
+    item.append(name, url, tag, actions);
+    item.onclick = () => {
+      if (!active) activateProvider(p.id).catch((err) => alert('切换失败: ' + err.message));
+    };
+    box.append(item);
+  }
+}
+
+function openEditor(p) {
+  state.editingProviderId = p ? p.id : '';
+  $('pvName').value = p?.name || '';
+  $('pvBaseUrl').value = p?.baseUrl || '';
+  $('pvApiKey').value = p?.apiKey || '';
+  $('pvModel').value = p?.model || '';
+  $('pvInsecure').checked = !!p?.insecureTLS;
+  $('providerHint').textContent = p ? '' : '填写后点「保存」完成新增';
+  $('providerEditor').hidden = false;
+  $('pvName').focus();
+}
+
+/** 保存编辑器内的 Provider（新增或更新），整表提交。 */
+async function saveProvider(close = true) {
+  const pv = {
+    name: $('pvName').value.trim(),
+    baseUrl: $('pvBaseUrl').value.trim(),
+    apiKey: $('pvApiKey').value.trim(),
+    model: $('pvModel').value.trim(),
+    insecureTLS: $('pvInsecure').checked,
+  };
+  if (state.editingProviderId) pv.id = state.editingProviderId;
+
+  const editing = state.editingProviderId;
+  const list = editing && state.providers.some((p) => p.id === editing)
+    ? state.providers.map((p) => (p.id === editing ? { ...p, ...pv } : p))
+    : [...state.providers, pv];
+
+  await api('/api/admin/config', { method: 'PUT', body: { providers: list } });
+  if (close) $('providerEditor').hidden = true;
+  await loadConfig();
+}
+
+async function deleteProvider(p) {
+  if (!confirm(`删除 Provider「${p.name || p.baseUrl || p.id}」？`)) return;
+  const list = state.providers.filter((x) => x.id !== p.id);
+  await api('/api/admin/config', { method: 'PUT', body: { providers: list } });
+  if (state.editingProviderId === p.id) $('providerEditor').hidden = true;
+  await loadConfig();
+}
+
+async function activateProvider(id) {
+  await api('/api/admin/config', { method: 'PUT', body: { activeProviderId: id } });
+  await loadConfig();
+}
+
+async function saveClientKeySetting() {
   await api('/api/admin/config', {
     method: 'PUT',
-    body: { upstream, proxy: { requireClientKey: $('requireClientKey').checked } },
+    body: { proxy: { requireClientKey: $('requireClientKey').checked } },
   });
-  $('saveHint').textContent = '已保存';
-  setTimeout(() => ($('saveHint').textContent = ''), 2000);
-  await loadConfig();
 }
 
 /* ---------- 事件绑定 ---------- */
@@ -597,7 +718,17 @@ $('password').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') $('loginBtn').click();
 });
 
-$('saveConfig').onclick = () => saveConfig().catch((e) => ($('saveHint').textContent = e.message));
+$('addProvider').onclick = () => openEditor(null);
+$('cancelProvider').onclick = () => {
+  $('providerEditor').hidden = true;
+};
+$('saveProvider').onclick = () => {
+  $('providerHint').textContent = '保存中…';
+  saveProvider(true).catch((e) => ($('providerHint').textContent = '保存失败: ' + e.message));
+};
+$('requireClientKey').onchange = () => {
+  saveClientKeySetting().catch((e) => setStatus(false, '保存失败: ' + e.message));
+};
 
 $('rotateKey').onclick = async () => {
   if (!confirm('重置后所有客户端需要更新 Key，确定继续？')) return;
@@ -720,22 +851,15 @@ async function runTest() {
 }
 
 $('testBtn').onclick = async () => {
-  $('testHint').textContent = '保存配置…';
-  const upstream = {
-    baseUrl: $('upBaseUrl').value.trim(),
-    model: $('upModel').value.trim(),
-    insecureTLS: $('upInsecure').checked,
-  };
-  const key = $('upApiKey').value.trim();
-  if (key && !key.includes('*')) upstream.apiKey = key;
-  try {
-    await api('/api/admin/config', {
-      method: 'PUT',
-      body: { upstream, proxy: { requireClientKey: $('requireClientKey').checked } },
-    });
-  } catch (err) {
-    $('testHint').textContent = '保存失败: ' + err.message;
-    return;
+  // 编辑器开着时先保存当前内容，再针对「启用的 Provider」发测试请求
+  if (!$('providerEditor').hidden) {
+    $('testHint').textContent = '保存配置…';
+    try {
+      await saveProvider(true);
+    } catch (err) {
+      $('testHint').textContent = '保存失败: ' + err.message;
+      return;
+    }
   }
   await runTest();
 };
@@ -745,6 +869,7 @@ $('testPrompt').addEventListener('keydown', (e) => {
 });
 
 /* ---------- 启动 ---------- */
+initTabs();
 loadConfig().catch((err) => {
   if (err.message !== 'unauthorized') setStatus(false, err.message);
 });

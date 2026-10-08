@@ -2,7 +2,7 @@ import http from 'node:http';
 import { checkClientKey } from './auth.js';
 import { proxyRequest, sendError } from './forward.js';
 import { VERSION } from '../version.js';
-import { PROFILE } from '../config.js';
+import { PROFILE, activeProvider } from '../config.js';
 
 const CORS = {
   'access-control-allow-origin': '*',
@@ -29,7 +29,7 @@ export function createProxyServer(ctx) {
           status: 'ok',
           version: VERSION,
           profile: PROFILE,
-          upstreamConfigured: !!cfg.upstream.baseUrl,
+          upstreamConfigured: !!activeProvider(cfg)?.baseUrl,
           uptimeSeconds: Math.round(process.uptime()),
         }),
       );

@@ -136,12 +136,13 @@ LocalAIProxy/
 
 **通用透传**：代理端口接收 `/v1/*` 的所有方法（GET/POST），把方法、路径、查询串、请求体、请求头转发到上游。
 
-- **URL 拼接**：`upstream.baseurl` + 请求路径（例如 `https://api.deepseek.com` + `/v1/chat/completions`）。注意处理 baseurl 末尾是否带 `/`、是否已含 `/v1`。
+- **URL 拼接**：`activeProvider.baseUrl` + 请求路径（例如 `https://api.deepseek.com` + `/v1/chat/completions`）。注意处理 baseurl 末尾是否带 `/`、是否已含 `/v1`。
+- **多 Provider 与启用切换**：配置里维护一个 Provider 列表（`providers[]`）与一个启用指针（`activeProviderId`）。转发时始终取**当前启用的那个** Provider（指针失效则回落到列表首项）；每条请求都实时读配置，因此网页上切换 Provider **即时生效、无需重启**。
 - **请求头处理**：
-  - 覆盖 `Authorization: Bearer <上游 APIKey>`（客户端带来的本地 Key **不转发**给上游）；
+  - 覆盖 `Authorization: Bearer <当前启用 Provider 的 APIKey>`（客户端带来的本地 Key **不转发**给上游）；
   - 透传 `Content-Type`、`Accept`、`User-Agent` 等业务头；
   - 剥离 `Host`（由 fetch 依目标 URL 自动生成）、`Content-Length`（由 fetch 重新计算）、`Connection`、`Transfer-Encoding` 等逐跳头。
-- **model 透传**：请求体中的 `model` 原样保留，不替换。配置里的 `upstream.model` 仅作**兜底**：当请求体未提供 `model` 时补上，并用于网页示例展示。
+- **model 透传**：请求体中的 `model` 原样保留，不替换。Provider 的 `model` 仅作**兜底**：当请求体未提供 `model` 时补上，并用于网页示例展示。
 - **流式（SSE）透传**：
   1. 判断上游响应 `Content-Type` 是否 `text/event-stream`；
   2. 设定响应头 `Content-Type: text/event-stream`、`Cache-Control: no-cache, no-transform`、`Connection: keep-alive`、`X-Accel-Buffering: no`；
@@ -216,12 +217,13 @@ LocalAIProxy/
 
 ### 6.5 Web 管理界面
 
-单页，无构建。功能：
+单页，无构建。分为三个 tab（**上游 Provider** / **请求日志** / **本地接入**）：首页判定为「尚未配置任何 Provider → 停在 上游 Provider tab；已配置 → 停在 请求日志 tab」，并记住用户上次选择（`localStorage`）。功能：
 
 1. **实时日志流**：滚动列表，点击展开查看。展开后**先给「摘要」卡片**——用普通用户能看懂的方式列出：发送了什么（模型、流式与否、消息条数与每条 role/内容、其它参数）、目标地址、收到了什么（HTTP 状态、耗时、finish_reason、助手回复、思考内容）、以及 token 用量（输入/输出/合计、缓存命中、思考 token）。摘要之后是**原始报文**（元信息 / 正文分块，含复制全文 / 下载）。
    渲染原则是**绝不裁剪**：短内容完整撑开显示；超长内容默认折叠为 17em 高并加渐隐遮罩，同时给出明确的「**展开全部（N 字符 · M 行）**」按钮，点击后完整撑开、不再有内层滚动。
    > 布局陷阱（曾导致“内容被截断且滚不到”）：列表 `.log-list` 是 flex 纵列容器，条目 `.log-item` 又设了 `overflow: hidden`。此时条目的自动最小尺寸会变成 0，被 flex 收缩压扁，超出部分被 `overflow: hidden` 悄悄裁掉，且父容器 `scrollHeight` 被算成等于 `clientHeight`，**连滚动条都不出现**。因此 `.log-item` 必须写 `flex: none`；历史查看面板额外放开 `max-height`。
-2. **Provider 配置**：上游 baseurl、apikey、默认 model 的查看与修改，保存即生效。
+2. **多 Provider 配置**：卡片列表展示全部 Provider，点击卡片即切换「当前启用」的一项（高亮 + 「使用中」标签），另可新增 / 编辑 / 删除。每个 Provider 含 名称、Base URL、API Key、兜底 model、是否跳过证书校验。保存后即时生效：转发模块每条请求实时读配置，切换无需重启。
+   > 展开的长日志条目，其头部 `.log-head` 用 `position: sticky; top: 0` 吸附在日志滚动容器顶部——因为条目本身很高时，用户仍能随时点头部把它收起。因此 `.log-item` **不能**再设 `overflow: hidden`（否则会成为 sticky 的裁剪/参照容器而使吸顶失效），改为仅保留 `flex: none`。
 3. **网页内测试（两条路径，界面上可选、结果里会标明用了哪条）**：均由「保存并测试」触发，测试结果在页面内流式渲染（含状态码与 token 用量）。
    - **直连上游**（`via=upstream`，默认）：绕过本地代理直接打上游 `/v1/chat/completions`，只用于验证 Provider 的 baseUrl / apiKey / model 是否正确；该次请求以 `admin:test(直连上游)` 记为一条日志。
    - **经本地代理**（`via=proxy`）：打本机 `http://127.0.0.1:<proxyPort>/v1/chat/completions` 并携带**本地 Key**，验证端到端链路（本地 Key 鉴权 → 转发 → 日志落库）。此时不在此处重复记日志，由代理自身记录，日志里能看到一条真实的客户端请求。
@@ -240,12 +242,13 @@ LocalAIProxy/
 | `test` | `LOCAL_AI_PROXY_PROFILE=test` | `data/config-test.json` | `data/logs-test/` | 开发 / 联调 / agent 验证 |
 
 - **`test` 档永远不会写 `user` 档的 `config.json`**（`ConfigStore.#persist` 里有硬性拒绝写入的兜底）。
-- `test` 档首次生成时，从 `config.json` **只读**复制一份可用的结构性配置：`proxy` 端口等结构项、`admin.host/port`、`log` 设置、`upstream` 全部（**含 apiKey**，便于用真实 provider 联调）；**不复制**本地客户端 Key（测试档新生成，便于区分）与管理口令；日志目录强制为 `logs-test`。
+- `test` 档首次生成时，从 `config.json` **只读**复制一份可用的结构性配置：`proxy` 端口等结构项、`admin.host/port`、`log` 设置、`providers` 全部（**含 apiKey**，便于用真实 provider 联调）；**不复制**本地客户端 Key（测试档新生成，便于区分）与管理口令；日志目录强制为 `logs-test`。
 - 启动时会醒目打印当前档位、配置文件与日志目录；状态接口也返回 `profile`，网页右下角角标在测试档会显示「· 测试档」。
 - 网页修改后写回并热更新（转发模块读取最新配置）。
 - 解析配置文件时会**先剥离 UTF-8 BOM**：Windows 记事本与 PowerShell 5.1 的 `Set-Content -Encoding utf8` 都会写入 BOM，而 `JSON.parse` 遇到 BOM 会直接抛错，曾导致「用户手改过配置后程序静默回退到默认配置、看起来像配置丢失」。
 - 解析失败时会先把原文件备份为 `config.json.bak` 再回退默认值，**不会直接覆盖用户文件**。
 - 环境变量 `LOCAL_AI_PROXY_PROFILE` 的取值会 trim + 转小写后再匹配，避免写成 `TEST` 时静默落到用户档。
+- **旧结构自动迁移**：早期版本用单一 `upstream` 对象保存上游。启动读配置时若发现 `upstream`，会自动把它转为 `providers` 列表的首项、置为启用，并**幂等落盘**（移除旧字段）；已无 `upstream` 的配置不受影响。迁移后 `activeProviderId` 始终有兜底：指向不存在的 Provider 时回落到列表首项。
 
 **配置项草案**
 
@@ -264,11 +267,17 @@ LocalAIProxy/
     "port": 8788,
     "password": ""
   },
-  "upstream": {
-    "baseUrl": "https://api.deepseek.com",
-    "apiKey": "sk-...",
-    "model": "deepseek-chat"
-  },
+  "providers": [
+    {
+      "id": "p_1a2b3c4d5e6f",      // 自动生成，前端按 id 提交/切换/删除
+      "name": "DeepSeek",           // 缺省时由 baseUrl 的 host 自动命名
+      "baseUrl": "https://api.deepseek.com",
+      "apiKey": "sk-...",
+      "model": "deepseek-chat",     // 兜底模型
+      "insecureTLS": false
+    }
+  ],
+  "activeProviderId": "p_1a2b3c4d5e6f", // 当前启用的 Provider
   "log": {
     "memorySize": 1000,
     "dir": "logs",              // 相对 HOME（默认 ./data），即 ./data/logs
@@ -301,14 +310,14 @@ LocalAIProxy/
 | POST | `/api/admin/login` | 口令登录（仅当 `admin.host` 非本机时需要） |
 | POST | `/api/admin/logout` | 退出登录 |
 | GET | `/api/admin/config` | 读取配置（密钥打码） |
-| PUT | `/api/admin/config` | 修改上游/日志等配置 |
-| POST | `/api/admin/test` | 用当前配置发一次真实测试请求：`via=upstream` 直连上游 / `via=proxy` 经本地代理；支持流式返回 |
+| PUT | `/api/admin/config` | 修改配置：`providers`（整体替换列表，含新增/编辑/删除）、`activeProviderId`（切换启用）、`proxy`/`log` 等；API Key 回传掩码时按 id 保留原值 |
+| POST | `/api/admin/test` | 用**当前启用的 Provider** 发一次真实测试请求：`via=upstream` 直连上游 / `via=proxy` 经本地代理；支持流式返回 |
 | POST | `/api/admin/keys/rotate` | 重置本地客户端 Key |
 | GET | `/api/admin/logs?limit=&before=` | 内存窗口分页查询 |
 | GET | `/api/admin/logs/stream?since=` | SSE 实时推送 |
 | GET | `/api/admin/logs/files` | 历史日志文件列表 |
 | GET | `/api/admin/logs/file?name=&offset=` | 读取历史文件分页 |
-| GET | `/api/admin/status` | 运行状态统计（含 `version`） |
+| GET | `/api/admin/status` | 运行状态统计（含 `version`、`providerCount`、`activeProviderId`、`upstreamConfigured`） |
 
 > `GET /health`（代理端口）与 `GET /api/admin/status` 均返回 `version` 字段，供网页角落角标与外部探活使用。
 
@@ -429,6 +438,12 @@ Electron 主进程在启动服务前注入三个环境变量，使后端在打�
 8. ✅ **桌面形态**：Electron 内嵌 Chromium（三系统统一渲染）；单一实例、前台式；窗口可最小化，关窗即进程与服务全部退出，无后台残留。
 9. ✅ **分发形式**：Windows 采用便携版单 exe；**仓库只提供逐系统的构建脚本，不提交二进制产物**；产物输出到 `releases/`。
 10. ✅ **版本号**：标准 semver 三位，单一来源为 `package.json`，随改动自更新（见第 13 节），并在网页角落与窗口标题展示。
+
+**已确认（2026-10-08）**
+
+11. ✅ **多 Provider**：配置由「单一 upstream」升级为 `providers[]` + `activeProviderId`，网页可自由新增/编辑/删除并在卡片上一键切换；旧配置自动迁移，向后兼容。
+12. ✅ **控制台分 tab**：拆为「上游 Provider / 请求日志 / 本地接入」三个 tab；首页按「是否已配置 Provider」判定，并用 `localStorage` 记住上次选择。
+13. ✅ **日志头部吸顶**：展开的长日志条目，其头部 sticky 吸附在列表顶部，随时可点击收起。
 
 **待确认**
 

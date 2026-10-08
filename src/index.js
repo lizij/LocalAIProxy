@@ -1,6 +1,7 @@
 import os from 'node:os';
 import { createApp } from './app.js';
 import { VERSION } from './version.js';
+import { activeProvider } from './config.js';
 
 const app = createApp();
 
@@ -41,7 +42,8 @@ for (const ip of lanAddresses()) {
   console.log(`                  http://${ip}:${cfg.proxy.port}/v1   (局域网)`);
 }
 console.log(`  客户端 API Key: ${cfg.proxy.apiKey}`);
-console.log(`  上游 Provider : ${cfg.upstream.baseUrl || '未配置（请打开管理页设置）'}`);
+const ap = activeProvider(cfg);
+console.log(`  上游 Provider : ${ap && ap.baseUrl ? `${ap.name || ap.baseUrl}（共 ${(cfg.providers || []).length} 个，当前启用）` : '未配置（请打开管理页添加并启用）'}`);
 console.log(`  管理页面      : http://127.0.0.1:${cfg.admin.port}`);
 console.log('');
 

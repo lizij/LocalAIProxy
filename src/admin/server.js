@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { randomSecret, PROFILE } from '../config.js';
+import { randomSecret, PROFILE, activeProvider } from '../config.js';
 import { listLogFiles, readLogFile } from '../log/reader.js';
 import { safeEqual } from '../proxy/auth.js';
 import { json, readJson } from './http.js';
@@ -130,7 +130,7 @@ export function createAdminServer(ctx) {
         return json(res, 200, { ok: true, apiKey });
       }
 
-      // 用当前上游配置做一次真实测试请求
+      // 用当前启用的上游 Provider 配置做一次真实测试请求
       if (req.method === 'POST' && pathname === '/api/admin/test') {
         return handleTest(req, res, ctx);
       }
@@ -193,7 +193,9 @@ export function createAdminServer(ctx) {
           profile: PROFILE,
           startedAt: ctx.startedAt,
           uptimeSeconds: Math.round(process.uptime()),
-          upstreamConfigured: !!cfg.upstream.baseUrl,
+          upstreamConfigured: !!activeProvider(cfg)?.baseUrl,
+          providerCount: (cfg.providers || []).length,
+          activeProviderId: cfg.activeProviderId || '',
           memoryCount: ctx.logs.buffer.length,
           memoryCapacity: ctx.logs.maxMemory,
           maxSeq: ctx.logs.seq,

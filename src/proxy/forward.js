@@ -1,4 +1,4 @@
-import { maskSecret } from '../config.js';
+import { maskSecret, activeProvider } from '../config.js';
 
 // 逐跳头（不能转发）
 const HOP_BY_HOP = new Set([
@@ -81,7 +81,7 @@ function readBody(req, maxBytes) {
   });
 }
 
-function buildForwardHeaders(req, cfg) {
+function buildForwardHeaders(req, provider) {
   const out = {};
   for (const [k, v] of Object.entries(req.headers)) {
     const lk = k.toLowerCase();
@@ -89,7 +89,7 @@ function buildForwardHeaders(req, cfg) {
     if (lk === 'authorization' || lk === 'api-key') continue; // 用上游 Key 覆盖
     out[k] = v;
   }
-  if (cfg.upstream.apiKey) out.authorization = `Bearer ${cfg.upstream.apiKey}`;
+  if (provider.apiKey) out.authorization = `Bearer ${provider.apiKey}`;
   return out;
 }
 
@@ -176,11 +176,12 @@ export async function proxyRequest(req, res, ctx) {
   const cfg = ctx.config.get();
   const started = Date.now();
 
-  if (!cfg.upstream.baseUrl) {
-    return sendError(res, 503, 'upstream_not_configured', '上游 Provider 未配置，请打开管理页设置 baseUrl 与 apiKey。');
+  const provider = activeProvider(cfg);
+  if (!provider || !provider.baseUrl) {
+    return sendError(res, 503, 'upstream_not_configured', '上游 Provider 未配置，请打开管理页添加并启用一个 Provider。');
   }
 
-  applyTlsFlag(!!cfg.upstream.insecureTLS);
+  applyTlsFlag(!!provider.insecureTLS);
 
   const maxBody = Number(cfg.proxy.maxBodyBytes) || 32 * 1024 * 1024;
   let bodyBuf;
@@ -190,8 +191,8 @@ export async function proxyRequest(req, res, ctx) {
     return sendError(res, err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, err.code || 'bad_request', err.message);
   }
 
-  const upstreamUrl = buildUpstreamUrl(cfg.upstream.baseUrl, req.url || '/');
-  const forwardHeaders = buildForwardHeaders(req, cfg);
+  const upstreamUrl = buildUpstreamUrl(provider.baseUrl, req.url || '/');
+  const forwardHeaders = buildForwardHeaders(req, provider);
 
   const rec = ctx.logs.start({
     client: { ip: clientIp(req), ua: req.headers['user-agent'] || '' },
